@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<title>Project Control Center</title>
+<link rel="stylesheet" href="styles.css?v=2026-08-24-1545">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="topbar-left">
+    <span class="brand">PROJECT CONTROL CENTER</span>
+    <span class="src src-demo" id="src-badge">–</span>
+    <span class="build-nr" id="build-nr" title="Ausgelieferter Stand"></span>
+  </div>
+  <div class="topbar-right">
+    <span id="health" class="health">–</span>
+    <button class="icon-btn" id="reload-btn" title="Neu laden">&#8635;</button>
+    <button class="icon-btn" id="token-btn" title="Zugang">&#9881;</button>
+  </div>
+</header>
+
+<!-- Serverfehler, immer sichtbar wenn vorhanden -->
+<div class="errbar" id="errbar" hidden>
+  <div class="errbar-text">
+    <strong id="err-title">Serverfehler</strong>
+    <span id="err-msg"></span>
+    <code id="err-code"></code>
+  </div>
+  <button class="icon-btn" id="err-close" title="Schließen">&times;</button>
+</div>
+
+<nav class="tabs">
+  <button class="tab is-active" data-view="dashboard">Dashboard</button>
+  <button class="tab" data-view="board">Zuständigkeit</button>
+  <button class="tab" data-view="decisions">Entscheidungen <span class="tab-badge" id="tab-dec-badge"></span></button>
+  <button class="tab" data-view="graph">Abhängigkeiten</button>
+  <button class="tab" data-view="works">Work-Liste</button>
+</nav>
+
+<main>
+
+  <!-- ============ ZUGANG ============ -->
+  <section id="view-token" class="view" hidden>
+
+    <section class="panel panel-token">
+      <h2>Anmelden</h2>
+      <p class="token-lead">
+        Deine Zugangsdaten bleiben <strong>nur in diesem Browser</strong>. Sie werden
+        in keine Datei geschrieben und nur an den Anmeldedienst geschickt.
+      </p>
+
+      <div id="angemeldet-als" class="angemeldet" hidden></div>
+
+      <form id="login-form" autocomplete="on">
+        <label class="token-label" for="login-mail">E-Mail</label>
+        <input type="email" id="login-mail" name="username" autocomplete="username"
+               inputmode="email" spellcheck="false" placeholder="name@beispiel.de">
+
+        <label class="token-label" for="login-pw">Passwort</label>
+        <input type="password" id="login-pw" name="password" autocomplete="current-password">
+
+        <div class="token-actions">
+          <button type="submit" class="btn-primary" id="login-btn">Anmelden</button>
+          <button type="button" class="btn-reset" id="logout-btn">Abmelden</button>
+        </div>
+      </form>
+    </section>
+
+    <section class="panel panel-token">
+      <h2>Alternativ: Agent-Token</h2>
+      <p class="token-lead">
+        Für Agenten und als Rückfallweg. Für die tägliche Arbeit ist die
+        Anmeldung oben der bessere Weg — sie läuft ab und lässt sich widerrufen.
+      </p>
+      <label class="token-label" for="token-input">Agent-Token</label>
+      <input type="password" id="token-input" autocomplete="off" spellcheck="false" placeholder="pcc_…">
+      <div class="token-actions">
+        <button class="btn-reset" id="token-save">Token verwenden</button>
+        <button class="btn-reset" id="token-demo">Ohne Anmeldung: Demo-Ansicht</button>
+      </div>
+      <p class="token-note">Endpoint: <code id="token-endpoint"></code></p>
+    </section>
+  </section>
+
+  <!-- Ladehinweis -->
+  <div class="loading" id="loading" hidden>Lade Projektstand …</div>
+
+  <!-- ============ DASHBOARD ============ -->
+  <section id="view-dashboard" class="view" hidden>
+
+    <section class="panel panel-project">
+      <div class="project-name" id="project-name">–</div>
+      <div class="project-goal"><span class="label">Ziel</span> <span id="project-goal">–</span></div>
+      <div class="bars">
+        <div class="bar-row">
+          <span class="bar-label">Fortschritt</span>
+          <div class="bar"><div class="bar-fill" id="bar-progress"></div></div>
+          <span class="bar-val" id="val-progress">–</span>
+        </div>
+        <div class="bar-row">
+          <span class="bar-label">Benchmark</span>
+          <div class="bar"><div class="bar-fill bar-fill-alt" id="bar-benchmark"></div></div>
+          <span class="bar-val" id="val-benchmark">–</span>
+        </div>
+      </div>
+    </section>
+
+    <div class="grid">
+
+      <section class="panel">
+        <h2>Jetzt</h2>
+        <ul class="list" id="now-list"></ul>
+      </section>
+
+      <section class="panel">
+        <h2>Danach</h2>
+        <ol class="list list-ordered" id="next-list"></ol>
+      </section>
+
+      <section class="panel">
+        <h2>Wartet auf mich <span class="count count-warn" id="decision-count">0</span></h2>
+        <ul class="list" id="decision-list"></ul>
+      </section>
+
+      <section class="panel">
+        <h2>Blockiert <span class="count" id="blocked-count">0</span></h2>
+        <ul class="list" id="blocked-list"></ul>
+      </section>
+
+      <section class="panel">
+        <h2>Agenten</h2>
+        <ul class="list list-agents" id="agent-list"></ul>
+      </section>
+
+      <section class="panel">
+        <h2>Aktive Locks <span class="count" id="lock-count">0</span></h2>
+        <ul class="list list-locks" id="lock-list"></ul>
+      </section>
+
+      <section class="panel panel-build" id="panel-build">
+        <h2>Build</h2>
+        <div class="build-grid" id="build-grid"></div>
+        <div class="drift" id="build-drift"></div>
+      </section>
+
+    </div>
+  </section>
+
+  <!-- ============ ZUSTÄNDIGKEIT ============ -->
+  <section id="view-board" class="view" hidden>
+    <section class="panel board-hint">
+      <div>
+        <strong>Karte auf eine andere Spalte ziehen</strong> ändert die Zuständigkeit.
+        Am Handy: Karte antippen, im Detail den Agenten umstellen.
+      </div>
+      <div class="board-hint-ok" id="board-mode">
+        Die Oberfläche entscheidet nicht selbst. Sie sendet den Wunsch an den Server;
+        der Server erlaubt oder lehnt ab.
+      </div>
+    </section>
+    <div class="board" id="board"></div>
+  </section>
+
+  <!-- ============ ENTSCHEIDUNGEN ============ -->
+  <section id="view-decisions" class="view" hidden>
+    <section class="panel board-hint">
+      <div><strong>Offene Entscheidungen des Projektmanagers.</strong></div>
+      <div class="board-hint-warn" id="dec-hint"></div>
+    </section>
+    <div id="decision-cards"></div>
+  </section>
+
+  <!-- ============ ABHÄNGIGKEITEN ============ -->
+  <section id="view-graph" class="view" hidden>
+    <section class="panel board-hint">
+      <div>
+        <strong>Was wartet worauf.</strong> Ebene 0 kann sofort laufen,
+        jede weitere wartet auf die Ebene darüber.
+      </div>
+      <div class="legend" id="graph-legend"></div>
+    </section>
+    <section class="panel">
+      <div id="graph"></div>
+    </section>
+  </section>
+
+  <!-- ============ WORK-LISTE ============ -->
+  <section id="view-works" class="view" hidden>
+    <section class="panel filters">
+      <input type="search" id="f-search" placeholder="Suche: Work-ID oder Titel">
+      <select id="f-status"><option value="">Status: alle</option></select>
+      <select id="f-agent"><option value="">Agent: alle</option></select>
+      <button id="f-reset" class="btn-reset">Filter zurücksetzen</button>
+      <span class="filter-count" id="f-count"></span>
+    </section>
+
+    <section class="panel">
+      <div class="table-scroll">
+        <table class="worktable">
+          <thead>
+            <tr><th>ID</th><th>Titel</th><th>Prio</th><th>Status</th><th>Owner</th><th>Blocker</th></tr>
+          </thead>
+          <tbody id="work-tbody"></tbody>
+        </table>
+      </div>
+      <p class="table-note" id="work-note"></p>
+    </section>
+  </section>
+
+</main>
+
+<!-- ============ WORK-DETAIL ============ -->
+<div id="overlay" class="overlay" hidden>
+  <div class="drawer" role="dialog" aria-modal="true">
+    <button class="drawer-close" id="drawer-close" aria-label="Schließen">&times;</button>
+    <div id="drawer-body"></div>
+  </div>
+</div>
+
+<!-- Datenquellen: erst die Fallback-Demo, dann die echte API, dann die Anzeige -->
+<script src="project-state.js?v=2026-08-24-1545"></script>
+<script src="control-api.js?v=2026-08-24-1545"></script>
+<script src="app.js?v=2026-08-24-1545"></script>
+</body>
+</html>

@@ -1,0 +1,999 @@
+/* ============================================================
+   PROJECT CONTROL CENTER — Oberfläche
+   ------------------------------------------------------------
+   Diese Datei ist DARSTELLUNG. Sie besitzt keine fachliche
+   Projektlogik und trifft keine Berechtigungsentscheidungen.
+
+   Sie berechnet NICHT:
+     Fortschritt · Benchmark · Jetzt · Danach · Blockiert ·
+     Agentenzustand · Locks · Konflikte · Build
+   Alle diese Werte kommen fertig aus pcc_project_status.
+
+   Beim Verschieben einer Zuständigkeit prüft sie NICHTS.
+   Sie sendet den Wunsch an assign_work und zeigt die Antwort
+   des Servers — Zustimmung oder Ablehnung (Abschnitt 41).
+
+   Datenquelle:
+     LIVE  = Control API (Regelfall)
+     DEMO  = project-state.js, nur als Fallback ohne Token.
+             Demo-Daten sind KEINE Projektwahrheit und werden
+             im Kopf der Seite deutlich als solche markiert.
+   ============================================================ */
+
+'use strict';
+
+/* Build-Nummer dieser Auslieferung.
+   Das Deploy-Skript liest sie und zieht damit die ?v=-Angaben in index.html
+   sowie build.txt nach. Ohne sie liefert der Browser nach einem Deploy
+   weiter die alten Dateien aus — genau der Fehler, der bei Root Index
+   tagelang einen wirkungslosen Deploy vorgetäuscht hat.
+   Vor jedem Deploy hochzählen. */
+const APP_BUILD = "2026-08-24-1545";
+
+/* ---------- Zustand der Anzeige ---------- */
+
+let MODE = 'live';        /* 'live' | 'demo' */
+let STATUS = null;        /* Antwort von pcc_project_status */
+let LOCKS = [];           /* Antwort von pcc_list_locks */
+let WORKS = new Map();    /* work_id -> Kurzeintrag aus status */
+let DETAILS = new Map();  /* work_id -> Antwort von pcc_get_work */
+let AGENT_ORDER = [];     /* Reihenfolge der Agentenspalten */
+
+const UNASSIGNED = '__none__';
+
+/* ---------- Helfer ---------- */
+
+const $ = (sel) => document.querySelector(sel);
+
+function el(tag, cls, text) {
+  const n = document.createElement(tag);
+  if (cls) n.className = cls;
+  if (text !== undefined && text !== null) n.textContent = String(text);
+  return n;
+}
+function clear(node) { while (node && node.firstChild) node.removeChild(node.firstChild); }
+function emptyLi(text) { const li = el('li'); li.appendChild(el('span', 'empty', text)); return li; }
+
+/* Kürzt nur für die Übersicht. Der vollständige Text bleibt in der
+   Entscheidungs-Ansicht sichtbar — hier wird nichts weggeworfen. */
+function kuerzen(text, max) {
+  const t = String(text || '');
+  return t.length <= max ? t : t.slice(0, max - 1).trimEnd() + '…';
+}
+
+function shortTime(iso) {
+  if (!iso) return '–';
+  const d = new Date(iso);
+  return isNaN(d) ? String(iso) : d.toLocaleString('de-DE', { dateStyle: 'short', timeStyle: 'short' });
+}
+
+/* Prioritätsband: der Server liefert es in get_work als priority_band.
+   In den Kurzlisten von project_status fehlt es. Dort wird deshalb nur
+   die Zahl gezeigt — die UI bildet keine eigenen Bandgrenzen. */
+function bandOf(workId) {
+  const d = DETAILS.get(String(workId));
+  return d && d.priority_band ? d.priority_band : null;
+}
+
+/* ============================================================
+   FEHLER — Serverantworten sichtbar machen
+   ============================================================ */
+
+function showError(res, was) {
+  const bar = $('#errbar');
+  $('#err-title').textContent = was || 'Der Server hat abgelehnt';
+  $('#err-msg').textContent = res && res.message ? res.message : 'Unbekannter Fehler.';
+  /* HTTP-Status nur nennen, wenn er selbst den Fehler meldet.
+     Eine fachliche Ablehnung kommt mit HTTP 200 — die Zahl dazuzuschreiben
+     würde einen technischen Fehler suggerieren, den es nicht gibt. */
+  $('#err-code').textContent = res && res.error_code
+    ? res.error_code + (res.http >= 400 ? ' · HTTP ' + res.http : '')
+    : '';
+  bar.hidden = false;
+  console.warn('[control-center] Serverantwort:', res);
+}
+function hideError() { $('#errbar').hidden = true; }
+
+/* ============================================================
+   LADEN
+   ============================================================ */
+
+async function loadLive() {
+  $('#loading').hidden = false;
+  hideError();
+
+  const st = await ControlAPI.status();
+  if (!st.ok) {
+    $('#loading').hidden = true;
+    showError(st, 'Projektstand konnte nicht geladen werden');
+    if (st.error_code === 'nicht_angemeldet' || st.http === 401) { zeigeAnmeldung(); showView('token'); }
+    return false;
+  }
+
+  STATUS = st.result;
+
+  const lk = await ControlAPI.listLocks();
+  LOCKS = lk.ok && Array.isArray(lk.result) ? lk.result : [];
+  if (!lk.ok) showError(lk, 'Locks konnten nicht geladen werden');
+
+  indexWorks();
+  MODE = 'live';
+  renderAll();
+  $('#loading').hidden = true;
+  console.info('[control-center] LIVE geladen:', WORKS.size, 'Work Items,',
+    Object.keys(STATUS.agents || {}).length, 'Agenten,', LOCKS.length, 'Locks.');
+  return true;
+}
+
+/* Demo-Fallback. Wird aus dem alten Prototyp-Format in das API-Format
+   übersetzt, damit es nur EINEN Anzeigeweg gibt. */
+function loadDemo() {
+  const d = window.PROJECT_STATE;
+  if (!d) { showError({ message: 'project-state.js fehlt.', error_code: 'no_demo' }); return false; }
+
+  const byId = new Map((d.work_items || []).map((w) => [String(w.work_id), w]));
+  const kurz = (w) => ({ work_id: w.work_id, title: w.title, priority: w.priority,
+                         owner: w.owner ? String(w.owner).toLowerCase().replace(/\s+/g, '') : null,
+                         status: w.status });
+
+  STATUS = {
+    project: { slug: 'demo', name: d.project.name, status: 'active',
+               health: d.project.health, goal: d.project.goal,
+               rule_version: d.project.rule_version },
+    progress: d.project_status.progress,
+    benchmark: { current: d.project_status.benchmark, scale_max: 100, measured_at: null },
+    now:     (d.project_status.now  || []).map((id) => kurz(byId.get(id))).filter(Boolean),
+    next:    (d.project_status.next || []).map((id) => kurz(byId.get(id))).filter(Boolean),
+    blocked: (d.project_status.blocked || []).map((id) => {
+               const w = byId.get(id); return w ? { work_id: w.work_id, title: w.title, blocker: w.blocker } : null;
+             }).filter(Boolean),
+    decisions: (d.decisions || []).filter((x) => x.status === 'open').map((x) => ({
+                 decision_id: x.decision_id, work_id: x.work_id, title: x.title,
+                 question: x.question, recommendation: x.recommendation })),
+    agents: Object.fromEntries((d.agents || []).map((a) => [
+               String(a.name).toLowerCase().replace(/\s+/g, ''),
+               { name: a.name, state: a.state, work_id: a.current_work } ])),
+    builds: { repo:  { version: d.build_state.repo,  measured_at: d.build_state.measured_at },
+              build: { version: d.build_state.build, measured_at: d.build_state.measured_at },
+              live:  { version: d.build_state.live,  measured_at: d.build_state.measured_at } },
+    conflicts: []
+  };
+
+  LOCKS = (d.locks || []).map((l) => ({
+    work_id: l.work_id, agent: String(l.agent).toLowerCase().replace(/\s+/g, ''),
+    agent_name: l.agent, resource_type: l.resource_type,
+    resource_key: l.resource, acquired_at: l.acquired_at, expires_at: l.expires_at }));
+
+  /* Demo-Details, damit Work-Detail und Graph auch ohne Token etwas zeigen */
+  DETAILS = new Map((d.work_items || []).map((w) => [String(w.work_id), {
+    work_id: w.work_id, title: w.title, goal: w.goal, description: w.description,
+    status: w.status, priority: w.priority, priority_band: w.priority_band,
+    owner: w.owner ? String(w.owner).toLowerCase().replace(/\s+/g, '') : null,
+    risk_level: w.risk_level, path: w.path_id, parent_work_id: w.parent_work_id,
+    depends_on: w.depends_on, blocks: [], blocker_note: w.blocker,
+    result_note: w.result, definition_of_done: w.definition_of_done,
+    affected_systems: w.affected_systems, affected_resources: w.affected_resources,
+    required_evidence: [], verification_required: false,
+    evidence: (w.evidence || []).map((e) => ({ type: e.type, title: e.title, passed: e.passed }))
+  }]));
+
+  indexWorks();
+  MODE = 'demo';
+  renderAll();
+  console.info('[control-center] DEMO geladen (keine Projektwahrheit):', WORKS.size, 'Work Items.');
+  return true;
+}
+
+/* Der Server liefert keine vollständige Work-Liste, sondern die drei
+   Sichten now / next / blocked. Hier werden sie nur zusammengeführt —
+   ohne Auswahl, ohne Bewertung, ohne Ergänzung. */
+function indexWorks() {
+  WORKS = new Map();
+  const add = (w, herkunft) => {
+    if (!w || w.work_id == null) return;
+    const id = String(w.work_id);
+    const vorhanden = WORKS.get(id) || {};
+    WORKS.set(id, Object.assign({ herkunft: herkunft }, vorhanden, w));
+  };
+  (STATUS.now     || []).forEach((w) => add(w, 'jetzt'));
+  (STATUS.next    || []).forEach((w) => add(w, 'danach'));
+  (STATUS.blocked || []).forEach((w) => add(Object.assign({ status: 'blocked' }, w), 'blockiert'));
+
+  AGENT_ORDER = Object.keys(STATUS.agents || {});
+}
+
+/* Detail nachladen und zwischenspeichern. */
+async function ensureDetail(workId) {
+  const id = String(workId);
+  if (DETAILS.has(id)) return DETAILS.get(id);
+  if (MODE === 'demo') return null;
+
+  const res = await ControlAPI.getWork(id);
+  if (!res.ok) { showError(res, 'Work Item konnte nicht geladen werden'); return null; }
+  DETAILS.set(id, res.result);
+  return res.result;
+}
+
+function renderAll() {
+  $('#src-badge').textContent = MODE === 'live' ? 'LIVE' : 'DEMO-DATEN';
+  $('#src-badge').className = 'src ' + (MODE === 'live' ? 'src-live' : 'src-demo');
+  document.title = (MODE === 'live' ? '' : 'DEMO · ') + 'Project Control Center';
+
+  renderDashboard();
+  renderBoard();
+  renderDecisions();
+  renderGraph();
+  buildFilterOptions();
+  renderWorkTable();
+}
+
+/* ============================================================
+   DASHBOARD
+   ============================================================ */
+
+function renderDashboard() {
+  const p = STATUS.project || {};
+  $('#project-name').textContent = p.name || '–';
+  $('#project-goal').textContent = p.goal || '(kein Ziel hinterlegt)';
+
+  const h = $('#health');
+  const map = { healthy: ['ok', 'SYSTEM HEALTHY'], warning: ['warn', 'SYSTEM WARNING'], critical: ['bad', 'SYSTEM CRITICAL'] };
+  const hit = map[p.health] || (p.health ? ['warn', String(p.health).toUpperCase()] : ['warn', 'HEALTH NICHT GESETZT']);
+  h.className = 'health ' + hit[0];
+  h.textContent = hit[1];
+
+  setBar('#bar-progress', '#val-progress', num(STATUS.progress));
+  const b = STATUS.benchmark;
+  const bVal = b && b.current != null ? Number(b.current) : null;
+  const bMax = b && b.scale_max ? Number(b.scale_max) : 100;
+  setBar('#bar-benchmark', '#val-benchmark', bVal == null ? null : (bVal / bMax) * 100, bVal == null ? 'nicht gemessen' : null);
+
+  renderNow();
+  renderNext();
+  renderBlocked();
+  renderDecisionSummary();
+  renderAgents();
+  renderLocks();
+  renderBuild();
+}
+
+function num(v) { const n = Number(v); return isFinite(n) ? n : null; }
+
+function setBar(barSel, valSel, pct, ersatzText) {
+  const v = pct == null ? 0 : Math.max(0, Math.min(100, pct));
+  $(barSel).style.width = v + '%';
+  $(valSel).textContent = ersatzText ? ersatzText : (pct == null ? '–' : Math.round(pct * 10) / 10 + ' %');
+}
+
+function workButton(w, meta) {
+  const btn = el('button', 'item');
+  btn.type = 'button';
+  btn.appendChild(el('span', 'item-id', '#' + w.work_id));
+  btn.appendChild(el('span', 'item-title', w.title || '(ohne Titel)'));
+  const band = bandOf(w.work_id);
+  if (band) btn.appendChild(el('span', 'band band-' + band, band));
+  else if (w.priority != null) btn.appendChild(el('span', 'item-meta', 'Prio ' + w.priority));
+  if (meta) btn.appendChild(el('span', 'item-meta', meta));
+  btn.addEventListener('click', () => openWork(w.work_id));
+  return btn;
+}
+
+function renderNow() {
+  const ul = $('#now-list'); clear(ul);
+  const rows = STATUS.now || [];
+  if (!rows.length) { ul.appendChild(emptyLi('Nichts läuft gerade.')); return; }
+  rows.forEach((w) => { const li = el('li'); li.appendChild(workButton(w, agentName(w.owner))); ul.appendChild(li); });
+}
+
+function renderNext() {
+  const ol = $('#next-list'); clear(ol);
+  const rows = STATUS.next || [];
+  if (!rows.length) { ol.appendChild(emptyLi('Nichts steht bereit.')); return; }
+  rows.forEach((w, i) => { const li = el('li'); li.appendChild(workButton(w, (i + 1) + '.')); ol.appendChild(li); });
+}
+
+function renderBlocked() {
+  const ul = $('#blocked-list'); clear(ul);
+  const rows = STATUS.blocked || [];
+  $('#blocked-count').textContent = rows.length;
+  if (!rows.length) { ul.appendChild(emptyLi('Nichts blockiert.')); return; }
+  rows.forEach((w) => {
+    const li = el('li');
+    li.appendChild(workButton(w));
+    if (w.blocker) li.appendChild(el('div', 'item-sub', w.blocker));
+    ul.appendChild(li);
+  });
+}
+
+function renderDecisionSummary() {
+  const ul = $('#decision-list'); clear(ul);
+  const rows = STATUS.decisions || [];
+  $('#decision-count').textContent = rows.length;
+  $('#tab-dec-badge').textContent = rows.length ? String(rows.length) : '';
+  if (!rows.length) { ul.appendChild(emptyLi('Keine offene Entscheidung.')); return; }
+  rows.forEach((d) => {
+    const li = el('li');
+    const btn = el('button', 'item');
+    btn.type = 'button';
+    btn.appendChild(el('span', 'item-id', 'DEC-' + d.decision_id));
+    btn.appendChild(el('span', 'item-title', d.title));
+    btn.addEventListener('click', () => activateTab('decisions'));
+    li.appendChild(btn);
+
+    /* Frage und Empfehlung als eigene Zeilen. Beide können beliebig lang
+       sein — in der Kopfzeile würden sie die Kachel sprengen. */
+    if (d.question) li.appendChild(el('div', 'item-sub', kuerzen(d.question, 160)));
+    if (d.recommendation) {
+      li.appendChild(el('div', 'item-sub', 'Empfehlung: ' + kuerzen(d.recommendation, 120)));
+    }
+    ul.appendChild(li);
+  });
+}
+
+function agentName(slug) {
+  if (!slug) return 'ohne Owner';
+  const a = (STATUS.agents || {})[slug];
+  return a && a.name ? a.name : slug;
+}
+
+function renderAgents() {
+  const ul = $('#agent-list'); clear(ul);
+  const agents = STATUS.agents || {};
+  const slugs = Object.keys(agents);
+  if (!slugs.length) { ul.appendChild(emptyLi('Keine Agenten.')); return; }
+  slugs.forEach((slug) => {
+    const a = agents[slug];
+    const li = el('li');
+    li.appendChild(el('span', 'agent-name', a.name || slug));
+    li.appendChild(el('span', 'agent-state st-' + a.state, a.state));
+    if (a.work_id != null) {
+      const w = WORKS.get(String(a.work_id));
+      li.appendChild(el('span', 'agent-work', '#' + a.work_id + (w ? ' · ' + w.title : '')));
+    }
+    ul.appendChild(li);
+  });
+}
+
+function renderLocks() {
+  const ul = $('#lock-list'); clear(ul);
+  $('#lock-count').textContent = LOCKS.length;
+  if (!LOCKS.length) { ul.appendChild(emptyLi('Keine aktiven Locks.')); return; }
+  LOCKS.forEach((l) => {
+    const li = el('li');
+    li.appendChild(el('div', 'lock-res', l.resource_key || '–'));
+    li.appendChild(el('div', 'lock-meta',
+      (l.agent_name || l.agent || '?') + ' · #' + l.work_id + ' · ' + (l.resource_type || '?') +
+      ' · läuft ab ' + shortTime(l.expires_at)));
+    ul.appendChild(li);
+  });
+}
+
+function renderBuild() {
+  const grid = $('#build-grid'); clear(grid);
+  const builds = STATUS.builds || {};
+  const envs = Object.keys(builds);
+  const drift = $('#build-drift');
+  const panel = $('#panel-build');
+
+  if (!envs.length) {
+    grid.appendChild(el('div', 'empty', 'Noch kein Build-Stand gemeldet.'));
+    drift.className = 'drift';
+    drift.textContent = 'Ohne gemeldeten Build lässt sich kein Drift feststellen. Es wird nichts vermutet.';
+    panel.classList.remove('has-drift');
+    return;
+  }
+
+  envs.forEach((env) => {
+    const b = builds[env] || {};
+    const box = el('div');
+    box.appendChild(el('span', 'build-label', env));
+    box.appendChild(el('span', 'build-val', b.version != null ? b.version : '–'));
+    if (b.measured_at) box.appendChild(el('span', 'build-when', shortTime(b.measured_at)));
+    grid.appendChild(box);
+  });
+
+  /* Der Server meldet derzeit keinen Drift-Wert. Die UI berechnet ihn NICHT
+     (Abschnitt 24) und behauptet deshalb auch keinen. */
+  drift.className = 'drift';
+  drift.textContent = 'Drift wird vom Server nicht gemeldet. Die Oberfläche leitet ihn nicht selbst ab.';
+  panel.classList.remove('has-drift');
+}
+
+/* ============================================================
+   ZUSTÄNDIGKEIT — Board
+   ============================================================ */
+
+function renderBoard() {
+  const board = $('#board'); clear(board);
+  const agents = STATUS.agents || {};
+
+  AGENT_ORDER.forEach((slug) => board.appendChild(buildColumn(slug, agents[slug])));
+  board.appendChild(buildColumn(UNASSIGNED, null));
+
+  $('#board-mode').textContent = MODE === 'live'
+    ? 'Die Oberfläche entscheidet nicht selbst. Sie sendet den Wunsch an den Server; der Server erlaubt oder lehnt ab.'
+    : 'DEMO-Ansicht ohne Token: Verschieben ist deaktiviert, weil es keinen Server gibt, der es entscheiden könnte.';
+}
+
+function buildColumn(slug, agent) {
+  const col = el('div', 'column' + (slug === UNASSIGNED ? ' is-unassigned' : ''));
+  col.dataset.owner = slug;
+
+  const head = el('div', 'col-head');
+  head.appendChild(el('span', 'col-name', slug === UNASSIGNED ? 'Nicht zugewiesen' : (agent && agent.name) || slug));
+  if (agent) head.appendChild(el('span', 'agent-state st-' + agent.state, agent.state));
+
+  const cards = [...WORKS.values()].filter((w) => (w.owner || UNASSIGNED) === slug)
+    .sort((a, b) => (b.priority || 0) - (a.priority || 0) || a.work_id - b.work_id);
+  head.appendChild(el('span', 'col-count', cards.length));
+  col.appendChild(head);
+
+  if (!cards.length) {
+    col.appendChild(el('div', 'col-empty', slug === UNASSIGNED ? 'Alles zugewiesen' : 'Keine Aufgabe'));
+  } else {
+    cards.forEach((w) => col.appendChild(buildCard(w)));
+  }
+
+  if (MODE === 'live') {
+    col.addEventListener('dragover', (e) => { e.preventDefault(); col.classList.add('is-over'); });
+    col.addEventListener('dragleave', () => col.classList.remove('is-over'));
+    col.addEventListener('drop', (e) => {
+      e.preventDefault();
+      col.classList.remove('is-over');
+      const id = e.dataTransfer.getData('text/plain');
+      if (id) requestAssign(id, slug);
+    });
+  }
+  return col;
+}
+
+function buildCard(w) {
+  const band = bandOf(w.work_id);
+  const card = el('div', 'card' + (band ? ' band-edge-' + band : ''));
+  card.dataset.workId = w.work_id;
+  card.draggable = MODE === 'live';
+
+  const top = el('div', 'card-top');
+  top.appendChild(el('span', 'card-id', '#' + w.work_id));
+  if (band) top.appendChild(el('span', 'band band-' + band, band));
+  else if (w.priority != null) top.appendChild(el('span', 'item-meta', 'Prio ' + w.priority));
+  card.appendChild(top);
+
+  card.appendChild(el('div', 'card-title', w.title || '(ohne Titel)'));
+
+  const bottom = el('div', 'card-bottom');
+  if (w.status) bottom.appendChild(el('span', 'status status-' + w.status, w.status));
+  card.appendChild(bottom);
+
+  if (w.blocker) card.appendChild(el('div', 'card-blocker', w.blocker));
+
+  const lock = LOCKS.find((l) => String(l.work_id) === String(w.work_id));
+  if (lock) card.appendChild(el('div', 'card-lock', 'Lock: ' + (lock.agent_name || lock.agent)));
+
+  if (MODE === 'live') {
+    card.addEventListener('dragstart', (e) => {
+      e.dataTransfer.setData('text/plain', String(w.work_id));
+      e.dataTransfer.effectAllowed = 'move';
+      card.classList.add('is-dragging');
+    });
+    card.addEventListener('dragend', () => card.classList.remove('is-dragging'));
+  }
+  card.addEventListener('click', () => openWork(w.work_id));
+  return card;
+}
+
+/* Der Kern von Work #1: Wunsch senden, Antwort zeigen.
+   KEINE Vorabprüfung — nicht auf Lock, nicht auf Status, nicht auf Rechte. */
+async function requestAssign(workId, ownerSlug) {
+  if (MODE !== 'live') return;
+  hideError();
+  $('#loading').hidden = false;
+
+  const res = await ControlAPI.assignWork(workId, ownerSlug === UNASSIGNED ? '' : ownerSlug);
+
+  if (!res.ok) {
+    /* Erst den Serverstand neu lesen, DANN die Ablehnung zeigen.
+       Umgekehrt würde loadLive() die Meldung sofort wieder wegräumen —
+       der Projektmanager sähe nie, warum es nicht ging. */
+    await loadLive();
+    $('#loading').hidden = true;
+    showError(res, 'Zuständigkeit konnte nicht geändert werden');
+    return;
+  }
+
+  DETAILS.delete(String(workId));  /* Detail neu holen, nicht raten */
+  await loadLive();                /* Punkt 7: nach Erfolg neu lesen */
+  console.info('[control-center] assign_work angenommen:', workId, '->', ownerSlug);
+}
+
+/* ============================================================
+   ENTSCHEIDUNGEN — Anzeige
+   ============================================================ */
+
+function renderDecisions() {
+  const wrap = $('#decision-cards'); clear(wrap);
+  const rows = STATUS.decisions || [];
+
+  const darfEntscheiden = MODE === 'live';
+  $('#dec-hint').textContent = darfEntscheiden
+    ? 'Eine Entscheidung ist dauerhaft. Der Server prüft, ob deine Anmeldung sie treffen darf.'
+    : 'In der Demo-Ansicht lässt sich nichts entscheiden — es gibt keinen Server, der es festhalten könnte.';
+
+  if (!rows.length) {
+    const p = el('div', 'panel');
+    p.appendChild(el('div', 'empty', 'Keine offene Entscheidung.'));
+    wrap.appendChild(p);
+    return;
+  }
+
+  rows.forEach((d) => {
+    const card = el('section', 'dec is-open');
+    const head = el('div', 'dec-head');
+    head.appendChild(el('span', 'dec-id', 'DEC-' + d.decision_id));
+    head.appendChild(el('span', 'status status-decision_required', 'offen'));
+    card.appendChild(head);
+    card.appendChild(el('h2', 'dec-title', d.title));
+    card.appendChild(el('p', 'dec-question', d.question));
+
+    if (d.work_id != null) {
+      const w = WORKS.get(String(d.work_id));
+      card.appendChild(el('div', 'dec-meta', 'betrifft #' + d.work_id + (w ? ' · ' + w.title : '')));
+    }
+
+    /* Optionen. Der Server liefert sie als Liste von Objekten mit key und
+       label — die UI liest nichts aus Texten heraus und rät keine Kürzel. */
+    let gewaehlt = null;
+    const optKnoepfe = [];
+    (d.options || []).forEach((o) => {
+      const key   = (o && typeof o === 'object') ? String(o.key || '') : '';
+      const label = (o && typeof o === 'object') ? String(o.label || '') : String(o);
+      const btn = el('button', 'opt');
+      btn.type = 'button';
+      btn.dataset.option = key;
+      btn.appendChild(el('span', 'opt-mark', '○'));
+      btn.appendChild(el('span', 'opt-text', key ? key + ' — ' + label : label));
+      if (d.recommendation && key && d.recommendation.trim().startsWith(key)) {
+        btn.appendChild(el('span', 'opt-rec', 'EMPFOHLEN'));
+      }
+      if (darfEntscheiden && key) {
+        btn.addEventListener('click', () => {
+          gewaehlt = key;
+          optKnoepfe.forEach((b) => {
+            const an = b.dataset.option === key;
+            b.classList.toggle('is-chosen', an);
+            b.querySelector('.opt-mark').textContent = an ? '●' : '○';
+          });
+        });
+      } else {
+        btn.disabled = true;
+      }
+      optKnoepfe.push(btn);
+      card.appendChild(btn);
+    });
+
+    if (d.recommendation) {
+      card.appendChild(el('div', 'dec-meta', 'Empfehlung der Agenten: ' + d.recommendation));
+    }
+
+    if (!darfEntscheiden) { wrap.appendChild(card); return; }
+
+    const why = el('div', 'dec-why');
+    const lbl = el('label', null, 'Begründung — sie wird mitgespeichert');
+    lbl.htmlFor = 'why-' + d.decision_id;
+    why.appendChild(lbl);
+    const ta = el('textarea');
+    ta.id = 'why-' + d.decision_id;
+    ta.placeholder = 'Warum diese Option? Das liest später jemand, der nicht dabei war.';
+    why.appendChild(ta);
+    card.appendChild(why);
+
+    const foot = el('div', 'dec-foot');
+    const senden = el('button', 'btn-primary', 'Entscheidung festhalten');
+    senden.addEventListener('click', async () => {
+      if (!gewaehlt) { showError({ message: 'Bitte zuerst eine Option wählen.', error_code: 'keine_auswahl' }, 'Noch nichts gewählt'); return; }
+      senden.disabled = true;
+      const res = await ControlAPI.resolveDecision(d.decision_id, gewaehlt, ta.value);
+      senden.disabled = false;
+      if (!res.ok) { showError(res, 'Entscheidung konnte nicht gespeichert werden'); return; }
+      await loadLive();                       /* Serverstand bleibt maßgeblich */
+      console.info('[control-center] Entscheidung gespeichert:', d.decision_id, gewaehlt);
+    });
+    foot.appendChild(senden);
+    card.appendChild(foot);
+
+    wrap.appendChild(card);
+  });
+}
+
+/* ============================================================
+   ABHÄNGIGKEITEN
+   ============================================================ */
+
+function renderGraph() {
+  const legend = $('#graph-legend'); clear(legend);
+  [['g-st-done', 'fertig'], ['g-st-in_progress', 'läuft'], ['g-st-open', 'geplant'],
+   ['g-st-blocked', 'blockiert / Entscheidung nötig'], ['g-st-ready_for_verification', 'wartet auf Prüfung']
+  ].forEach(([cls, text]) => {
+    const s = el('span', null, text);
+    const dot = el('i', cls);
+    dot.style.cssText = 'border-left-width:11px;border-left-style:solid;border-radius:2px';
+    s.insertBefore(dot, s.firstChild);
+    legend.appendChild(s);
+  });
+
+  const graph = $('#graph'); clear(graph);
+  const works = [...WORKS.values()];
+  if (!works.length) { graph.appendChild(el('div', 'empty', 'Keine Work Items.')); return; }
+
+  /* depends_on steht nur im Detail. Was noch nicht geladen ist, gilt als
+     "nicht bekannt" — es wird nichts angenommen. */
+  const deps = (w) => {
+    const d = DETAILS.get(String(w.work_id));
+    return d && Array.isArray(d.depends_on) ? d.depends_on.map(String) : [];
+  };
+
+  const placed = new Set();
+  const levels = [];
+  let rest = works.slice();
+  let guard = 0;
+
+  while (rest.length && guard++ < 25) {
+    const ready = rest.filter((w) => deps(w).every((id) => placed.has(id) || !WORKS.has(id)));
+    if (!ready.length) { levels.push(rest.slice()); break; }
+    ready.forEach((w) => placed.add(String(w.work_id)));
+    levels.push(ready.sort((a, b) => (b.priority || 0) - (a.priority || 0)));
+    rest = rest.filter((w) => !placed.has(String(w.work_id)));
+  }
+
+  levels.forEach((level, i) => {
+    if (i > 0) graph.appendChild(el('div', 'g-arrow', '↓'));
+    graph.appendChild(el('div', 'g-level-label', i === 0 ? 'Kann sofort laufen' : 'Wartet auf die Ebene darüber'));
+    const row = el('div', 'g-level');
+    level.forEach((w) => row.appendChild(buildGraphNode(w, deps(w))));
+    graph.appendChild(row);
+  });
+
+  const ungeladen = works.filter((w) => !DETAILS.has(String(w.work_id))).length;
+  if (ungeladen && MODE === 'live') {
+    graph.appendChild(el('div', 'graph-note',
+      ungeladen + ' Work Item(s) sind noch nicht im Detail geladen. Abhängigkeiten erscheinen, sobald sie geöffnet wurden.'));
+  }
+}
+
+function buildGraphNode(w, deps) {
+  const node = el('div', 'g-node g-st-' + (w.status || 'open'));
+  const top = el('div', 'g-top');
+  top.appendChild(el('span', 'g-id', '#' + w.work_id));
+  const band = bandOf(w.work_id);
+  if (band) top.appendChild(el('span', 'band band-' + band, band));
+  node.appendChild(top);
+  node.appendChild(el('div', 'g-title', w.title || '(ohne Titel)'));
+  if (deps.length) node.appendChild(el('div', 'g-wait', 'wartet auf #' + deps.join(', #')));
+  if (w.blocker) node.appendChild(el('div', 'card-blocker', w.blocker));
+  node.appendChild(el('div', 'item-meta', agentName(w.owner)));
+  node.addEventListener('click', () => openWork(w.work_id));
+  return node;
+}
+
+/* ============================================================
+   WORK-LISTE
+   ============================================================ */
+
+function buildFilterOptions() {
+  const stSel = $('#f-status'), agSel = $('#f-agent');
+  const keepSt = stSel.value, keepAg = agSel.value;
+  clear(stSel); clear(agSel);
+
+  const o0 = el('option', null, 'Status: alle'); o0.value = ''; stSel.appendChild(o0);
+  [...new Set([...WORKS.values()].map((w) => w.status).filter(Boolean))].sort().forEach((s) => {
+    const o = el('option', null, 'Status: ' + s); o.value = s; stSel.appendChild(o);
+  });
+
+  const a0 = el('option', null, 'Agent: alle'); a0.value = ''; agSel.appendChild(a0);
+  AGENT_ORDER.forEach((slug) => {
+    const o = el('option', null, 'Agent: ' + agentName(slug)); o.value = slug; agSel.appendChild(o);
+  });
+  const an = el('option', null, 'Agent: nicht zugewiesen'); an.value = UNASSIGNED; agSel.appendChild(an);
+
+  stSel.value = keepSt; agSel.value = keepAg;
+}
+
+function renderWorkTable() {
+  const q = $('#f-search').value.trim().toLowerCase();
+  const fs = $('#f-status').value, fa = $('#f-agent').value;
+
+  const rows = [...WORKS.values()].filter((w) => {
+    if (fs && w.status !== fs) return false;
+    if (fa && (w.owner || UNASSIGNED) !== fa) return false;
+    if (q && !((String(w.work_id) + ' ' + (w.title || '')).toLowerCase().includes(q))) return false;
+    return true;
+  }).sort((a, b) => (b.priority || 0) - (a.priority || 0) || a.work_id - b.work_id);
+
+  $('#f-count').textContent = rows.length + ' von ' + WORKS.size;
+  $('#work-note').textContent = MODE === 'live'
+    ? 'Die Control API liefert keine vollständige Work-Liste. Gezeigt wird, was project_status unter Jetzt, Danach und Blockiert meldet.'
+    : 'Demo-Daten — keine Projektwahrheit.';
+
+  const tb = $('#work-tbody'); clear(tb);
+  if (!rows.length) {
+    const tr = el('tr'); const td = el('td', 'td-dim', 'Kein Work Item passt.');
+    td.colSpan = 6; tr.appendChild(td); tb.appendChild(tr); return;
+  }
+
+  rows.forEach((w) => {
+    const tr = el('tr');
+    tr.appendChild(el('td', 'td-id', '#' + w.work_id));
+    tr.appendChild(el('td', null, w.title || '(ohne Titel)'));
+
+    const band = bandOf(w.work_id);
+    const tdP = el('td', 'td-prio');
+    if (band) tdP.appendChild(el('span', 'band band-' + band, band));
+    tdP.appendChild(document.createTextNode(' ' + (w.priority != null ? w.priority : '–')));
+    tr.appendChild(tdP);
+
+    const tdS = el('td');
+    if (w.status) tdS.appendChild(el('span', 'status status-' + w.status, w.status));
+    tr.appendChild(tdS);
+
+    tr.appendChild(el('td', w.owner ? null : 'td-dim', agentName(w.owner)));
+    tr.appendChild(el('td', w.blocker ? 'td-blocker' : 'td-dim', w.blocker || '–'));
+
+    tr.addEventListener('click', () => openWork(w.work_id));
+    tb.appendChild(tr);
+  });
+}
+
+/* ============================================================
+   WORK-DETAIL
+   ============================================================ */
+
+async function openWork(workId) {
+  const body = $('#drawer-body');
+  clear(body);
+  body.appendChild(el('div', 'loading-inline', 'Lade #' + workId + ' …'));
+  $('#overlay').hidden = false;
+  document.body.style.overflow = 'hidden';
+
+  const w = await ensureDetail(workId);
+  clear(body);
+
+  if (!w) {
+    body.appendChild(el('h2', 'd-title', 'Work #' + workId));
+    body.appendChild(el('p', 'empty', 'Detail konnte nicht geladen werden.'));
+    return;
+  }
+
+  const head = el('div', 'd-head');
+  head.appendChild(el('span', 'd-id', '#' + w.work_id));
+  if (w.priority_band) head.appendChild(el('span', 'band band-' + w.priority_band, w.priority_band + ' · ' + w.priority));
+  head.appendChild(el('span', 'status status-' + w.status, w.status));
+  if (w.verification_required) head.appendChild(el('span', 'chip', 'Prüfung durch zweiten Agenten nötig'));
+  body.appendChild(head);
+
+  body.appendChild(el('h2', 'd-title', w.title));
+  if (w.goal) body.appendChild(el('p', 'd-goal', w.goal));
+
+  if (w.blocker_note) {
+    const s = section('Blockiert durch');
+    s.appendChild(el('div', 'd-blocker', w.blocker_note));
+    body.appendChild(s);
+  }
+
+  /* Zuständigkeit ändern — der Weg ohne Ziehen, auch am Handy */
+  const own = section('Zuständig');
+  const pick = el('div', 'owner-pick');
+  const sel = el('select');
+  sel.setAttribute('aria-label', 'Zuständigen Agenten wählen');
+  const on = el('option', null, 'nicht zugewiesen'); on.value = UNASSIGNED; sel.appendChild(on);
+  AGENT_ORDER.forEach((slug) => { const o = el('option', null, agentName(slug)); o.value = slug; sel.appendChild(o); });
+  sel.value = w.owner || UNASSIGNED;
+  sel.disabled = MODE !== 'live';
+  sel.addEventListener('change', async () => {
+    const ziel = sel.value;
+    closeDrawer();
+    await requestAssign(w.work_id, ziel);
+  });
+  pick.appendChild(sel);
+  if (MODE !== 'live') pick.appendChild(el('span', 'owner-warn', 'In der Demo-Ansicht nicht änderbar.'));
+  own.appendChild(pick);
+  body.appendChild(own);
+
+  const facts = section('Einordnung');
+  const grid = el('div', 'd-facts');
+  [['Hauptpfad', w.path || '–'],
+   ['Risiko', w.risk_level || '–'],
+   ['Parent', w.parent_work_id != null ? '#' + w.parent_work_id : '–'],
+   ['Projekt', w.project || '–']
+  ].forEach(([k, v]) => {
+    const f = el('div', 'd-fact');
+    f.appendChild(el('span', 'd-fact-k', k));
+    f.appendChild(el('span', 'd-fact-v', v));
+    grid.appendChild(f);
+  });
+  facts.appendChild(grid);
+  body.appendChild(facts);
+
+  if (w.description) { const s = section('Beschreibung'); s.appendChild(el('p', null, w.description)); body.appendChild(s); }
+
+  const dodSec = section('Definition of Done');
+  const dod = el('ul', 'd-dod' + (['done', 'verified'].includes(w.status) ? ' is-done' : ''));
+  (w.definition_of_done || []).forEach((t) => dod.appendChild(el('li', null, t)));
+  if (!(w.definition_of_done || []).length) dod.appendChild(el('li', 'empty', 'Nicht definiert.'));
+  dodSec.appendChild(dod);
+  body.appendChild(dodSec);
+
+  body.appendChild(chips('Wartet auf', (w.depends_on || []).map((x) => '#' + x), 'Keine Abhängigkeiten.'));
+  body.appendChild(chips('Blockiert', (w.blocks || []).map((x) => '#' + x), 'Blockiert nichts.'));
+  body.appendChild(chips('Pflicht-Evidence', w.required_evidence, 'Keine gefordert.'));
+  body.appendChild(chips('Betroffene Systeme', w.affected_systems, 'Keine benannt.'));
+  body.appendChild(chips('Betroffene Ressourcen', w.affected_resources, 'Keine benannt.'));
+
+  const myLocks = LOCKS.filter((l) => String(l.work_id) === String(w.work_id));
+  const ls = section('Locks');
+  if (!myLocks.length) ls.appendChild(el('div', 'empty', 'Keine aktiven Locks.'));
+  else myLocks.forEach((l) => {
+    const d = el('div', 'd-ev');
+    d.appendChild(el('span', 'd-ev-type', l.resource_type));
+    d.appendChild(el('span', null, l.resource_key));
+    d.appendChild(el('span', 'd-ev-type', (l.agent_name || l.agent) + ' · bis ' + shortTime(l.expires_at)));
+    ls.appendChild(d);
+  });
+  body.appendChild(ls);
+
+  const es = section('Evidence');
+  const evs = w.evidence || [];
+  if (!evs.length) es.appendChild(el('div', 'empty', 'Noch keine Evidence. Ohne Evidence kein "done".'));
+  else evs.forEach((e) => {
+    const d = el('div', 'd-ev');
+    d.appendChild(el('span', 'd-ev-mark ' + (e.passed ? 'pass' : 'fail'), e.passed ? '✓' : '✗'));
+    d.appendChild(el('span', 'd-ev-type', e.type));
+    d.appendChild(el('span', null, e.title));
+    es.appendChild(d);
+  });
+  body.appendChild(es);
+
+  if (w.result_note) { const s = section('Ergebnis'); s.appendChild(el('p', null, w.result_note)); body.appendChild(s); }
+
+  $('#drawer-close').focus();
+}
+
+function section(title) { const s = el('section', 'd-section'); s.appendChild(el('h3', null, title)); return s; }
+
+function chips(title, values, leerText) {
+  const s = section(title);
+  if (!values || !values.length) { s.appendChild(el('div', 'empty', leerText)); return s; }
+  const wrap = el('div', 'd-chips');
+  values.forEach((v) => wrap.appendChild(el('span', 'chip', String(v))));
+  s.appendChild(wrap);
+  return s;
+}
+
+function closeDrawer() {
+  $('#overlay').hidden = true;
+  document.body.style.overflow = '';
+}
+
+/* ============================================================
+   Ansichten und Bedienung
+   ============================================================ */
+
+const VIEWS = ['token', 'dashboard', 'board', 'decisions', 'graph', 'works'];
+
+function showView(name) {
+  VIEWS.forEach((v) => { const n = $('#view-' + v); if (n) n.hidden = v !== name; });
+}
+
+function activateTab(name) {
+  document.querySelectorAll('.tab').forEach((t) => t.classList.toggle('is-active', t.dataset.view === name));
+  showView(name);
+  document.documentElement.scrollTop = 0;
+}
+
+function wireUi() {
+  document.querySelectorAll('.tab').forEach((tab) => {
+    tab.addEventListener('click', () => activateTab(tab.dataset.view));
+  });
+
+  ['#f-search', '#f-status', '#f-agent'].forEach((s) => $(s).addEventListener('input', renderWorkTable));
+  $('#f-reset').addEventListener('click', () => {
+    ['#f-search', '#f-status', '#f-agent'].forEach((s) => { $(s).value = ''; });
+    renderWorkTable();
+  });
+
+  $('#drawer-close').addEventListener('click', closeDrawer);
+  $('#overlay').addEventListener('click', (e) => { if (e.target === $('#overlay')) closeDrawer(); });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeDrawer(); });
+
+  $('#err-close').addEventListener('click', hideError);
+  $('#reload-btn').addEventListener('click', () => { if (MODE === 'live') loadLive(); else loadDemo(); });
+
+  $('#token-btn').addEventListener('click', () => {
+    $('#token-endpoint').textContent = ControlAPI.endpoint;
+    zeigeAnmeldung();
+    showView('token');
+  });
+
+  /* Anmeldung mit E-Mail und Passwort */
+  $('#login-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const mail = $('#login-mail').value.trim();
+    const pw = $('#login-pw').value;
+    if (!mail || !pw) return;
+
+    const btn = $('#login-btn');
+    btn.disabled = true; btn.textContent = 'Melde an …';
+    const res = await ControlAPI.anmelden(mail, pw);
+    btn.disabled = false; btn.textContent = 'Anmelden';
+    $('#login-pw').value = '';                 /* Passwort nicht stehen lassen */
+
+    if (!res.ok) { showError(res, 'Anmeldung fehlgeschlagen'); return; }
+    hideError();
+    zeigeAnmeldung();
+    activateTab('dashboard');
+    await loadLive();
+  });
+
+  $('#logout-btn').addEventListener('click', () => {
+    ControlAPI.abmelden();
+    zeigeAnmeldung();
+    loadDemo();
+    showView('token');
+  });
+
+  $('#token-save').addEventListener('click', async () => {
+    const v = $('#token-input').value.trim();
+    if (!v) return;
+    ControlAPI.tokenSetzen(v);
+    $('#token-input').value = '';
+    zeigeAnmeldung();
+    activateTab('dashboard');
+    await loadLive();
+  });
+
+  $('#token-demo').addEventListener('click', () => { activateTab('dashboard'); loadDemo(); });
+}
+
+/* Zeigt an, wer gerade angemeldet ist — oder dass niemand es ist. */
+function zeigeAnmeldung() {
+  const box = $('#angemeldet-als');
+  const w = ControlAPI.wer();
+  if (!w) { box.hidden = true; return; }
+  box.hidden = false;
+  clear(box);
+  box.appendChild(el('span', 'angemeldet-punkt', '●'));
+  box.appendChild(el('span', null, w.art === 'login'
+    ? 'Angemeldet als ' + (w.email || 'unbekannt')
+    : 'Angemeldet über Agent-Token'));
+
+  /* Ehrlich sagen, wenn die Anmeldung das Neuladen nicht überlebt.
+     Sonst wirkt es wie ein Fehler der Anmeldung, obwohl der Browser
+     bei geöffneten Dateien einfach nichts speichern darf. */
+  if (!w.dauerhaft) {
+    box.appendChild(el('span', 'angemeldet-warn',
+      '— nur bis zum Neuladen. Dieser Browser speichert für lokal geöffnete Dateien nichts.'));
+  }
+}
+
+async function boot() {
+  wireUi();
+  $('#token-endpoint').textContent = ControlAPI.endpoint;
+  zeigeAnmeldung();
+
+  /* Build sichtbar machen: nur so lässt sich am Handy prüfen, ob der
+     neue Stand wirklich angekommen ist, statt es zu vermuten. */
+  const bn = $('#build-nr');
+  if (bn) bn.textContent = APP_BUILD;
+  console.info('[control-center] Build', APP_BUILD);
+
+  if (ControlAPI.angemeldet()) {
+    const ok = await loadLive();
+    if (!ok && !STATUS) loadDemo();      /* damit die Seite nicht leer bleibt */
+    return;
+  }
+  /* Nicht angemeldet: Demo zeigen und die Anmeldung anbieten. */
+  loadDemo();
+  showView('token');
+}
+
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
+else boot();
