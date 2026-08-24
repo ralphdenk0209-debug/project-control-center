@@ -25,6 +25,7 @@ const ControlAPI = (function () {
   const ENDPOINT  = BASIS + '/functions/v1/project-control-agent';
   const AUTH_URL  = BASIS + '/auth/v1';
   const SPEICHER  = 'pcc_sitzung';
+  const PROJEKT_SPEICHER = 'pcc_projekt';
 
   /* Oeffentlicher Schluessel des Anmeldedienstes. Das ist KEIN Geheimnis:
      er steht in jeder Supabase-Anwendung im Browser und erlaubt fuer sich
@@ -54,6 +55,11 @@ const ControlAPI = (function () {
      es weiterhin der Server. Vorher musste die Oberflaeche probeweise
      SCHREIBEN, um das herauszufinden; ein Leseaufruf mit Nebenwirkung. */
   let SCOPES = [];
+
+  /* Welches Projekt gerade gemeint ist. Der Server prueft, ob der Benutzer
+     dort ueberhaupt einen Agenten hat — die Auswahl hier oeffnet nichts. */
+  let PROJEKT = null;
+  try { PROJEKT = localStorage.getItem(PROJEKT_SPEICHER) || null; } catch (e) { PROJEKT = null; }
 
   function speicherVerfuegbar() {
     try {
@@ -197,7 +203,10 @@ const ControlAPI = (function () {
       res = await fetch(ENDPOINT, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + aktuell.bearer },
-        body: JSON.stringify(Object.assign({ action: action }, payload || {}))
+        body: JSON.stringify(Object.assign(
+          { action: action },
+          PROJEKT ? { project: PROJEKT } : {},
+          payload || {}))
       });
     } catch (netErr) {
       return { ok: false, error_code: 'network',
@@ -280,6 +289,14 @@ const ControlAPI = (function () {
     angemeldet: angemeldet,
     wer:        wer,
 
+    /* Projektwahl */
+    projekt:       () => PROJEKT,
+    projektSetzen: (slug) => {
+      PROJEKT = slug || null;
+      try { slug ? localStorage.setItem(PROJEKT_SPEICHER, slug)
+                 : localStorage.removeItem(PROJEKT_SPEICHER); } catch (e) { /* egal */ }
+    },
+
     /* Darf diese Anmeldung eine bestimmte Aktion? Reine Auskunft, keine
        Entscheidung: der Server lehnt unabhaengig davon ab. */
     darf:       (aktion) => SCOPES.indexOf(aktion) !== -1,
@@ -306,6 +323,9 @@ const ControlAPI = (function () {
     addRuleFromTemplate:(code)          => call('add_rule_from_template', { code: String(code) }),
     updateRule:        (code, aenderung)=> call('update_rule', Object.assign({ code: String(code) }, aenderung || {})),
     createRule:        (regel)          => call('create_rule', regel),
+
+    listProjects:  ()          => call('list_projects'),
+    createProject: (p)         => call('create_project', p),
 
     raw: call
   };

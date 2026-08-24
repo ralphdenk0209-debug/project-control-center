@@ -597,3 +597,31 @@ code{font-family:var(--mono);font-size:.92em;background:var(--panel-2);padding:1
 /* Zustaendigkeit im Dashboard ueber die volle Breite */
 .panel-breit{grid-column:1 / -1}
 .panel-hinweis{margin:0 0 12px;font-size:13px;color:var(--text-dim)}
+
+/* ---------- Projektwahl und neues Projekt ---------- */
+.projekt-wahl{
+  background:var(--panel-2);border:1px solid var(--line);color:var(--text);
+  border-radius:6px;padding:5px 9px;font:inherit;font-size:13px;max-width:230px;
+}
+.projekt-wahl:focus{outline:none;border-color:var(--accent)}
+
+.dialog{
+  background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);
+  padding:26px 28px;margin:auto;max-width:520px;width:calc(100% - 32px);
+  position:relative;max-height:90vh;overflow-y:auto;
+}
+.overlay:has(.dialog){align-items:center;justify-content:center}
+#np-name,#np-slug,#np-goal{
+  width:100%;background:var(--panel-2);border:1px solid var(--line);color:var(--text);
+  border-radius:6px;padding:10px 12px;font:inherit;font-size:15px;margin-bottom:4px;
+}
+#np-slug{font-family:var(--mono);font-size:14px}
+#np-goal{min-height:64px;resize:vertical;margin-bottom:14px}
+#np-name:focus,#np-slug:focus,#np-goal:focus{outline:none;border-color:var(--accent)}
+.np-hinweis{margin:0 0 14px;font-size:12px;color:var(--text-dim)}
+.np-optional{font-size:10px;color:var(--text-dim);text-transform:none;letter-spacing:0}
+
+@media (max-width:760px){
+  .projekt-wahl{max-width:140px;font-size:12px}
+  .dialog{padding:20px 16px}
+}

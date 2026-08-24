@@ -25,7 +25,7 @@
    damit die ?v=-Angaben in index.html sowie build.txt nach. Ohne sie liefert
    der Browser nach einem Deploy weiter die alten Dateien aus.
    Vor jedem Deploy hochzählen. */
-const APP_BUILD = "2026-08-24-2200";
+const APP_BUILD = "2026-08-24-2245";
 
 /* ---------- Zustand der Anzeige ---------- */
 
@@ -114,6 +114,7 @@ async function loadLive() {
   renderAll();
   $('#loading').hidden = true;
   ladeRegeln();                 /* läuft nebenher, blockiert die Anzeige nicht */
+  ladeProjekte();
   console.info('[control-center] LIVE:', WORKS.size, 'Work Items,',
     Object.keys(STATUS.agents || {}).length, 'Agenten,', LOCKS.length, 'Locks.');
   return true;
@@ -385,6 +386,92 @@ async function requestAssign(workId, ownerSlug) {
   DETAILS.delete(String(workId));
   await loadLive();
   console.info('[control-center] assign_work angenommen:', workId, '->', ownerSlug);
+}
+
+/* ============================================================
+   PROJEKTE
+   Ein Benutzer kann in mehreren Projekten arbeiten. Welche das sind,
+   sagt der Server — die Auswahl hier oeffnet nichts, sie waehlt nur aus.
+   ============================================================ */
+
+let PROJEKTE = [];
+
+async function ladeProjekte() {
+  const wahl = $('#projekt-wahl');
+  if (MODE !== 'live') { wahl.hidden = true; return; }
+
+  const res = await ControlAPI.listProjects();
+  if (!res.ok) { wahl.hidden = true; return; }   /* Agent-Token darf das nicht */
+  PROJEKTE = Array.isArray(res.result) ? res.result : [];
+
+  clear(wahl);
+  PROJEKTE.forEach((p) => {
+    const o = el('option', null, p.name);
+    o.value = p.slug;
+    wahl.appendChild(o);
+  });
+
+  /* Neues Projekt anlegen darf nur, wer das Recht hat. */
+  if (ControlAPI.darf('create_project')) {
+    const o = el('option', null, '+ Neues Projekt …');
+    o.value = '__neu__';
+    wahl.appendChild(o);
+  }
+
+  const aktiv = ControlAPI.projekt() || (STATUS.project && STATUS.project.slug);
+  if (aktiv) wahl.value = aktiv;
+  wahl.hidden = PROJEKTE.length < 1;
+}
+
+async function projektWechseln(slug) {
+  ControlAPI.projektSetzen(slug);
+  DETAILS = new Map();          /* Details gehoeren zum alten Projekt */
+  hideError();
+  await loadLive();
+}
+
+function zeigeNeuesProjekt() {
+  ['#np-name', '#np-slug', '#np-goal'].forEach((s) => { $(s).value = ''; });
+  $('#neues-projekt').hidden = false;
+  document.body.style.overflow = 'hidden';
+  $('#np-name').focus();
+}
+
+function schliesseNeuesProjekt() {
+  $('#neues-projekt').hidden = true;
+  document.body.style.overflow = '';
+  /* Auswahl zurueckstellen, damit nicht "+ Neues Projekt" stehenbleibt */
+  const wahl = $('#projekt-wahl');
+  const aktiv = ControlAPI.projekt() || (STATUS && STATUS.project && STATUS.project.slug);
+  if (aktiv) wahl.value = aktiv;
+}
+
+/* Vorschlag fuer den Kurznamen aus dem Titel. Nur ein Vorschlag —
+   der Server prueft ihn und lehnt ab, wenn er nicht taugt. */
+function slugVorschlag(titel) {
+  return String(titel || '').toLowerCase()
+    .replace(/[äÄ]/g, 'ae').replace(/[öÖ]/g, 'oe').replace(/[üÜ]/g, 'ue').replace(/ß/g, 'ss')
+    .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60);
+}
+
+async function projektAnlegen() {
+  const name = $('#np-name').value.trim();
+  const slug = $('#np-slug').value.trim() || slugVorschlag(name);
+  const goal = $('#np-goal').value.trim();
+
+  if (!name) { showError({ message: 'Bitte einen Titel eingeben.', error_code: 'name_fehlt' }, 'Titel fehlt'); return; }
+
+  const knopf = $('#np-anlegen');
+  knopf.disabled = true; knopf.textContent = 'Lege an …';
+  const res = await ControlAPI.createProject({ slug: slug, name: name, goal: goal });
+  knopf.disabled = false; knopf.textContent = 'Projekt anlegen';
+
+  if (!res.ok) { showError(res, 'Projekt konnte nicht angelegt werden'); return; }
+
+  schliesseNeuesProjekt();
+  await projektWechseln(res.result.slug);
+  console.info('[control-center] Projekt angelegt:', res.result.slug,
+    '·', res.result.regeln_uebernommen, 'Regeln übernommen');
 }
 
 /* ============================================================
@@ -730,8 +817,26 @@ function wireUi() {
 
   $('#drawer-close').addEventListener('click', closeDrawer);
   $('#overlay').addEventListener('click', (e) => { if (e.target === $('#overlay')) closeDrawer(); });
-  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') { closeDrawer(); schliesseKatalog(); } });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') { closeDrawer(); schliesseKatalog(); schliesseNeuesProjekt(); } });
   $('#err-close').addEventListener('click', hideError);
+
+  /* Projektwahl */
+  $('#projekt-wahl').addEventListener('change', (e) => {
+    if (e.target.value === '__neu__') { zeigeNeuesProjekt(); return; }
+    projektWechseln(e.target.value);
+  });
+  $('#np-name').addEventListener('input', () => {
+    /* Kurzname mitschreiben, solange er nicht von Hand geändert wurde */
+    const s = $('#np-slug');
+    if (!s.dataset.vonHand) s.value = slugVorschlag($('#np-name').value);
+  });
+  $('#np-slug').addEventListener('input', () => { $('#np-slug').dataset.vonHand = '1'; });
+  $('#np-anlegen').addEventListener('click', projektAnlegen);
+  $('#np-abbrechen').addEventListener('click', schliesseNeuesProjekt);
+  $('#np-close').addEventListener('click', schliesseNeuesProjekt);
+  $('#neues-projekt').addEventListener('click', (e) => {
+    if (e.target === $('#neues-projekt')) schliesseNeuesProjekt();
+  });
   $('#reload-btn').addEventListener('click', () => { if (MODE === 'live') loadLive(); else loadDemo(); });
 
   /* Regelwerk */

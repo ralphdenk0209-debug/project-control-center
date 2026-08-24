@@ -5,13 +5,14 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="color-scheme" content="dark">
 <title>Project Control Center</title>
-<link rel="stylesheet" href="styles.css?v=2026-08-24-2200">
+<link rel="stylesheet" href="styles.css?v=2026-08-24-2245">
 </head>
 <body>
 
 <header class="topbar">
   <div class="topbar-left">
     <span class="brand">PROJECT CONTROL CENTER</span>
+    <select id="projekt-wahl" class="projekt-wahl" aria-label="Projekt wählen" hidden></select>
     <span class="src src-demo" id="src-badge">–</span>
     <span class="build-nr" id="build-nr" title="Ausgelieferter Stand"></span>
   </div>
@@ -166,6 +167,33 @@
 
 </main>
 
+<!-- ============ NEUES PROJEKT ============ -->
+<div id="neues-projekt" class="overlay" hidden>
+  <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="np-titel">
+    <button class="drawer-close" id="np-close" aria-label="Schließen">&times;</button>
+    <h2 class="d-title" id="np-titel">Neues Projekt</h2>
+    <p class="d-goal">
+      Das Projekt bekommt sofort das Standard-Regelwerk. Du kannst es danach
+      anpassen, ohne dass andere Projekte davon berührt werden.
+    </p>
+
+    <label class="token-label" for="np-name">Titel</label>
+    <input type="text" id="np-name" placeholder="z. B. Root Index" autocomplete="off">
+
+    <label class="token-label" for="np-slug">Kurzname</label>
+    <input type="text" id="np-slug" placeholder="root-index" autocomplete="off" spellcheck="false">
+    <p class="np-hinweis">Kleinbuchstaben, Ziffern, Bindestriche. Wird nicht mehr geändert.</p>
+
+    <label class="token-label" for="np-goal">Ziel <span class="np-optional">optional</span></label>
+    <textarea id="np-goal" placeholder="Worum geht es in einem Satz?"></textarea>
+
+    <div class="token-actions">
+      <button class="btn-primary" id="np-anlegen">Projekt anlegen</button>
+      <button class="btn-reset" id="np-abbrechen">Abbrechen</button>
+    </div>
+  </div>
+</div>
+
 <!-- ============ BAUKASTEN ============ -->
 <div id="katalog" class="overlay" hidden>
   <div class="drawer" role="dialog" aria-modal="true">
@@ -188,8 +216,8 @@
 </div>
 
 <!-- Datenquellen: erst die Fallback-Demo, dann die echte API, dann die Anzeige -->
-<script src="project-state.js?v=2026-08-24-2200"></script>
-<script src="control-api.js?v=2026-08-24-2200"></script>
-<script src="app.js?v=2026-08-24-2200"></script>
+<script src="project-state.js?v=2026-08-24-2245"></script>
+<script src="control-api.js?v=2026-08-24-2245"></script>
+<script src="app.js?v=2026-08-24-2245"></script>
 </body>
 </html>
