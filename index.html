@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="color-scheme" content="dark">
 <title>Project Control Center</title>
-<link rel="stylesheet" href="styles.css?v=2026-08-24-2015">
+<link rel="stylesheet" href="styles.css?v=2026-08-24-2130">
 </head>
 <body>
 
@@ -34,11 +34,7 @@
 
 <nav class="tabs">
   <button class="tab is-active" data-view="dashboard">Dashboard</button>
-  <button class="tab" data-view="board">Zuständigkeit</button>
-  <button class="tab" data-view="decisions">Entscheidungen <span class="tab-badge" id="tab-dec-badge"></span></button>
-  <button class="tab" data-view="graph">Abhängigkeiten</button>
-  <button class="tab" data-view="works">Work-Liste</button>
-  <button class="tab" data-view="rules">Regelwerk <span class="tab-badge" id="tab-rules-badge"></span></button>
+  <button class="tab" data-view="rules">Regelwerk</button>
 </nav>
 
 <main>
@@ -141,6 +137,13 @@
         <ul class="list list-locks" id="lock-list"></ul>
       </section>
 
+
+      <section class="panel panel-breit">
+        <h2>Zuständigkeit</h2>
+        <p class="panel-hinweis" id="board-mode"></p>
+        <div class="board" id="board"></div>
+      </section>
+
       <section class="panel panel-build" id="panel-build">
         <h2>Build</h2>
         <div class="build-grid" id="build-grid"></div>
@@ -150,43 +153,8 @@
     </div>
   </section>
 
-  <!-- ============ ZUSTÄNDIGKEIT ============ -->
-  <section id="view-board" class="view" hidden>
-    <section class="panel board-hint">
-      <div>
-        <strong>Karte auf eine andere Spalte ziehen</strong> ändert die Zuständigkeit.
-        Am Handy: Karte antippen, im Detail den Agenten umstellen.
-      </div>
-      <div class="board-hint-ok" id="board-mode">
-        Die Oberfläche entscheidet nicht selbst. Sie sendet den Wunsch an den Server;
-        der Server erlaubt oder lehnt ab.
-      </div>
-    </section>
-    <div class="board" id="board"></div>
-  </section>
 
-  <!-- ============ ENTSCHEIDUNGEN ============ -->
-  <section id="view-decisions" class="view" hidden>
-    <section class="panel board-hint">
-      <div><strong>Offene Entscheidungen des Projektmanagers.</strong></div>
-      <div class="board-hint-warn" id="dec-hint"></div>
-    </section>
-    <div id="decision-cards"></div>
-  </section>
 
-  <!-- ============ ABHÄNGIGKEITEN ============ -->
-  <section id="view-graph" class="view" hidden>
-    <section class="panel board-hint">
-      <div>
-        <strong>Was wartet worauf.</strong> Ebene 0 kann sofort laufen,
-        jede weitere wartet auf die Ebene darüber.
-      </div>
-      <div class="legend" id="graph-legend"></div>
-    </section>
-    <section class="panel">
-      <div id="graph"></div>
-    </section>
-  </section>
 
   <!-- ============ REGELWERK ============ -->
   <section id="view-rules" class="view" hidden>
@@ -212,28 +180,6 @@
     <div id="regel-liste"></div>
   </section>
 
-  <!-- ============ WORK-LISTE ============ -->
-  <section id="view-works" class="view" hidden>
-    <section class="panel filters">
-      <input type="search" id="f-search" placeholder="Suche: Work-ID oder Titel">
-      <select id="f-status"><option value="">Status: alle</option></select>
-      <select id="f-agent"><option value="">Agent: alle</option></select>
-      <button id="f-reset" class="btn-reset">Filter zurücksetzen</button>
-      <span class="filter-count" id="f-count"></span>
-    </section>
-
-    <section class="panel">
-      <div class="table-scroll">
-        <table class="worktable">
-          <thead>
-            <tr><th>ID</th><th>Titel</th><th>Prio</th><th>Status</th><th>Owner</th><th>Blocker</th></tr>
-          </thead>
-          <tbody id="work-tbody"></tbody>
-        </table>
-      </div>
-      <p class="table-note" id="work-note"></p>
-    </section>
-  </section>
 
 </main>
 
@@ -259,8 +205,8 @@
 </div>
 
 <!-- Datenquellen: erst die Fallback-Demo, dann die echte API, dann die Anzeige -->
-<script src="project-state.js?v=2026-08-24-2015"></script>
-<script src="control-api.js?v=2026-08-24-2015"></script>
-<script src="app.js?v=2026-08-24-2015"></script>
+<script src="project-state.js?v=2026-08-24-2130"></script>
+<script src="control-api.js?v=2026-08-24-2130"></script>
+<script src="app.js?v=2026-08-24-2130"></script>
 </body>
 </html>

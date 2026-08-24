@@ -2,33 +2,30 @@
    PROJECT CONTROL CENTER — Oberfläche
    ------------------------------------------------------------
    Diese Datei ist DARSTELLUNG. Sie besitzt keine fachliche
-   Projektlogik und trifft keine Berechtigungsentscheidungen.
+   Projektlogik und trifft keine Berechtigungsentscheidungen
+   (Regel ARCH-02).
 
-   Sie berechnet NICHT:
-     Fortschritt · Benchmark · Jetzt · Danach · Blockiert ·
-     Agentenzustand · Locks · Konflikte · Build
-   Alle diese Werte kommen fertig aus pcc_project_status.
+   Sie berechnet NICHT: Fortschritt, Benchmark, Jetzt, Danach,
+   Blockiert, Agentenzustand, Locks, Build. Alles kommt fertig
+   aus pcc_project_status (Regel ARCH-01).
 
-   Beim Verschieben einer Zuständigkeit prüft sie NICHTS.
-   Sie sendet den Wunsch an assign_work und zeigt die Antwort
-   des Servers — Zustimmung oder Ablehnung (Abschnitt 41).
+   ZWEI ANSICHTEN, mehr nicht:
+     Dashboard  — alles, was der Projektmanager sehen muss,
+                  einschließlich Zuständigkeit und Entscheidungen
+     Regelwerk  — die Regeln dieses Projekts
 
-   Datenquelle:
-     LIVE  = Control API (Regelfall)
-     DEMO  = project-state.js, nur als Fallback ohne Token.
-             Demo-Daten sind KEINE Projektwahrheit und werden
-             im Kopf der Seite deutlich als solche markiert.
+   Work-Liste, Abhängigkeitsgraph und eine eigene Entscheidungs-
+   Ansicht gab es einmal. Sie sind entfernt: dieselben Work Items
+   dreimal anders sortiert sind keine drei Ansichten, sondern eine.
    ============================================================ */
 
 'use strict';
 
-/* Build-Nummer dieser Auslieferung.
-   Das Deploy-Skript liest sie und zieht damit die ?v=-Angaben in index.html
-   sowie build.txt nach. Ohne sie liefert der Browser nach einem Deploy
-   weiter die alten Dateien aus — genau der Fehler, der bei Root Index
-   tagelang einen wirkungslosen Deploy vorgetäuscht hat.
+/* Build-Nummer dieser Auslieferung. Das Deploy-Skript liest sie und zieht
+   damit die ?v=-Angaben in index.html sowie build.txt nach. Ohne sie liefert
+   der Browser nach einem Deploy weiter die alten Dateien aus.
    Vor jedem Deploy hochzählen. */
-const APP_BUILD = "2026-08-24-2015";
+const APP_BUILD = "2026-08-24-2130";
 
 /* ---------- Zustand der Anzeige ---------- */
 
@@ -54,25 +51,23 @@ function el(tag, cls, text) {
 function clear(node) { while (node && node.firstChild) node.removeChild(node.firstChild); }
 function emptyLi(text) { const li = el('li'); li.appendChild(el('span', 'empty', text)); return li; }
 
-/* Kürzt nur für die Übersicht. Der vollständige Text bleibt in der
-   Entscheidungs-Ansicht sichtbar — hier wird nichts weggeworfen. */
-function kuerzen(text, max) {
-  const t = String(text || '');
-  return t.length <= max ? t : t.slice(0, max - 1).trimEnd() + '…';
-}
-
 function shortTime(iso) {
   if (!iso) return '–';
   const d = new Date(iso);
   return isNaN(d) ? String(iso) : d.toLocaleString('de-DE', { dateStyle: 'short', timeStyle: 'short' });
 }
 
-/* Prioritätsband: der Server liefert es in get_work als priority_band.
-   In den Kurzlisten von project_status fehlt es. Dort wird deshalb nur
-   die Zahl gezeigt — die UI bildet keine eigenen Bandgrenzen. */
+/* Prioritätsband liefert der Server in get_work. In den Kurzlisten fehlt es;
+   dort steht nur die Zahl. Die UI bildet keine eigenen Bandgrenzen (ARCH-04). */
 function bandOf(workId) {
   const d = DETAILS.get(String(workId));
   return d && d.priority_band ? d.priority_band : null;
+}
+
+function agentName(slug) {
+  if (!slug) return 'ohne Owner';
+  const a = (STATUS.agents || {})[slug];
+  return a && a.name ? a.name : slug;
 }
 
 /* ============================================================
@@ -80,16 +75,15 @@ function bandOf(workId) {
    ============================================================ */
 
 function showError(res, was) {
-  const bar = $('#errbar');
   $('#err-title').textContent = was || 'Der Server hat abgelehnt';
   $('#err-msg').textContent = res && res.message ? res.message : 'Unbekannter Fehler.';
-  /* HTTP-Status nur nennen, wenn er selbst den Fehler meldet.
-     Eine fachliche Ablehnung kommt mit HTTP 200 — die Zahl dazuzuschreiben
-     würde einen technischen Fehler suggerieren, den es nicht gibt. */
+  /* HTTP-Status nur nennen, wenn er selbst den Fehler meldet. Eine fachliche
+     Ablehnung kommt mit HTTP 200 — die Zahl würde einen technischen Fehler
+     suggerieren, den es nicht gibt. */
   $('#err-code').textContent = res && res.error_code
     ? res.error_code + (res.http >= 400 ? ' · HTTP ' + res.http : '')
     : '';
-  bar.hidden = false;
+  $('#errbar').hidden = false;
   console.warn('[control-center] Serverantwort:', res);
 }
 function hideError() { $('#errbar').hidden = true; }
@@ -109,7 +103,6 @@ async function loadLive() {
     if (st.error_code === 'nicht_angemeldet' || st.http === 401) { zeigeAnmeldung(); showView('token'); }
     return false;
   }
-
   STATUS = st.result;
 
   const lk = await ControlAPI.listLocks();
@@ -120,61 +113,55 @@ async function loadLive() {
   MODE = 'live';
   renderAll();
   $('#loading').hidden = true;
-  ladeRegeln();                 /* laeuft nebenher, blockiert die Anzeige nicht */
-  console.info('[control-center] LIVE geladen:', WORKS.size, 'Work Items,',
+  ladeRegeln();                 /* läuft nebenher, blockiert die Anzeige nicht */
+  console.info('[control-center] LIVE:', WORKS.size, 'Work Items,',
     Object.keys(STATUS.agents || {}).length, 'Agenten,', LOCKS.length, 'Locks.');
   return true;
 }
 
-/* Demo-Fallback. Wird aus dem alten Prototyp-Format in das API-Format
-   übersetzt, damit es nur EINEN Anzeigeweg gibt. */
+/* Demo ohne Anmeldung. Wird ins API-Format übersetzt, damit es nur EINEN
+   Anzeigeweg gibt. Demo-Daten sind keine Projektwahrheit (Regel WAHRHEIT-05). */
 function loadDemo() {
   const d = window.PROJECT_STATE;
   if (!d) { showError({ message: 'project-state.js fehlt.', error_code: 'no_demo' }); return false; }
 
   const byId = new Map((d.work_items || []).map((w) => [String(w.work_id), w]));
+  const slug = (s) => s ? String(s).toLowerCase().replace(/\s+/g, '') : null;
   const kurz = (w) => ({ work_id: w.work_id, title: w.title, priority: w.priority,
-                         owner: w.owner ? String(w.owner).toLowerCase().replace(/\s+/g, '') : null,
-                         status: w.status });
+                         owner: slug(w.owner), status: w.status });
 
   STATUS = {
     project: { slug: 'demo', name: d.project.name, status: 'active',
-               health: d.project.health, goal: d.project.goal,
-               rule_version: d.project.rule_version },
+               health: d.project.health, goal: d.project.goal },
     progress: d.project_status.progress,
-    benchmark: { current: d.project_status.benchmark, scale_max: 100, measured_at: null },
+    benchmark: { current: d.project_status.benchmark, scale_max: 100 },
     now:     (d.project_status.now  || []).map((id) => kurz(byId.get(id))).filter(Boolean),
     next:    (d.project_status.next || []).map((id) => kurz(byId.get(id))).filter(Boolean),
     blocked: (d.project_status.blocked || []).map((id) => {
-               const w = byId.get(id); return w ? { work_id: w.work_id, title: w.title, blocker: w.blocker } : null;
+               const w = byId.get(id);
+               return w ? { work_id: w.work_id, title: w.title, blocker: w.blocker } : null;
              }).filter(Boolean),
     decisions: (d.decisions || []).filter((x) => x.status === 'open').map((x) => ({
                  decision_id: x.decision_id, work_id: x.work_id, title: x.title,
-                 question: x.question, recommendation: x.recommendation })),
-    agents: Object.fromEntries((d.agents || []).map((a) => [
-               String(a.name).toLowerCase().replace(/\s+/g, ''),
-               { name: a.name, state: a.state, work_id: a.current_work } ])),
-    builds: { repo:  { version: d.build_state.repo,  measured_at: d.build_state.measured_at },
-              build: { version: d.build_state.build, measured_at: d.build_state.measured_at },
-              live:  { version: d.build_state.live,  measured_at: d.build_state.measured_at } },
-    conflicts: []
+                 question: x.question, recommendation: x.recommendation, options: x.options })),
+    agents: Object.fromEntries((d.agents || []).map((a) =>
+               [slug(a.name), { name: a.name, state: a.state, work_id: a.current_work }])),
+    builds: {}, conflicts: []
   };
 
   LOCKS = (d.locks || []).map((l) => ({
-    work_id: l.work_id, agent: String(l.agent).toLowerCase().replace(/\s+/g, ''),
-    agent_name: l.agent, resource_type: l.resource_type,
-    resource_key: l.resource, acquired_at: l.acquired_at, expires_at: l.expires_at }));
+    work_id: l.work_id, agent: slug(l.agent), agent_name: l.agent,
+    resource_type: l.resource_type, resource_key: l.resource, expires_at: l.expires_at }));
 
-  /* Demo-Details, damit Work-Detail und Graph auch ohne Token etwas zeigen */
   DETAILS = new Map((d.work_items || []).map((w) => [String(w.work_id), {
     work_id: w.work_id, title: w.title, goal: w.goal, description: w.description,
     status: w.status, priority: w.priority, priority_band: w.priority_band,
-    owner: w.owner ? String(w.owner).toLowerCase().replace(/\s+/g, '') : null,
-    risk_level: w.risk_level, path: w.path_id, parent_work_id: w.parent_work_id,
-    depends_on: w.depends_on, blocks: [], blocker_note: w.blocker,
-    result_note: w.result, definition_of_done: w.definition_of_done,
-    affected_systems: w.affected_systems, affected_resources: w.affected_resources,
-    required_evidence: [], verification_required: false,
+    owner: slug(w.owner), risk_level: w.risk_level, path: w.path_id,
+    parent_work_id: w.parent_work_id, depends_on: w.depends_on, blocks: [],
+    blocker_note: w.blocker, result_note: w.result,
+    definition_of_done: w.definition_of_done, affected_systems: w.affected_systems,
+    affected_resources: w.affected_resources, required_evidence: [],
+    verification_required: false,
     evidence: (w.evidence || []).map((e) => ({ type: e.type, title: e.title, passed: e.passed }))
   }]));
 
@@ -182,34 +169,30 @@ function loadDemo() {
   MODE = 'demo';
   renderAll();
   ladeRegeln();
-  console.info('[control-center] DEMO geladen (keine Projektwahrheit):', WORKS.size, 'Work Items.');
+  console.info('[control-center] DEMO (keine Projektwahrheit):', WORKS.size, 'Work Items.');
   return true;
 }
 
-/* Der Server liefert keine vollständige Work-Liste, sondern die drei
-   Sichten now / next / blocked. Hier werden sie nur zusammengeführt —
-   ohne Auswahl, ohne Bewertung, ohne Ergänzung. */
+/* Der Server liefert keine vollständige Work-Liste, sondern die drei Sichten
+   now / next / blocked. Hier werden sie nur zusammengeführt — ohne Auswahl,
+   ohne Bewertung, ohne Ergänzung. */
 function indexWorks() {
   WORKS = new Map();
-  const add = (w, herkunft) => {
+  const add = (w) => {
     if (!w || w.work_id == null) return;
     const id = String(w.work_id);
-    const vorhanden = WORKS.get(id) || {};
-    WORKS.set(id, Object.assign({ herkunft: herkunft }, vorhanden, w));
+    WORKS.set(id, Object.assign({}, WORKS.get(id) || {}, w));
   };
-  (STATUS.now     || []).forEach((w) => add(w, 'jetzt'));
-  (STATUS.next    || []).forEach((w) => add(w, 'danach'));
-  (STATUS.blocked || []).forEach((w) => add(Object.assign({ status: 'blocked' }, w), 'blockiert'));
-
+  (STATUS.now     || []).forEach(add);
+  (STATUS.next    || []).forEach(add);
+  (STATUS.blocked || []).forEach((w) => add(Object.assign({ status: 'blocked' }, w)));
   AGENT_ORDER = Object.keys(STATUS.agents || {});
 }
 
-/* Detail nachladen und zwischenspeichern. */
 async function ensureDetail(workId) {
   const id = String(workId);
   if (DETAILS.has(id)) return DETAILS.get(id);
   if (MODE === 'demo') return null;
-
   const res = await ControlAPI.getWork(id);
   if (!res.ok) { showError(res, 'Work Item konnte nicht geladen werden'); return null; }
   DETAILS.set(id, res.result);
@@ -220,13 +203,8 @@ function renderAll() {
   $('#src-badge').textContent = MODE === 'live' ? 'LIVE' : 'DEMO-DATEN';
   $('#src-badge').className = 'src ' + (MODE === 'live' ? 'src-live' : 'src-demo');
   document.title = (MODE === 'live' ? '' : 'DEMO · ') + 'Project Control Center';
-
   renderDashboard();
   renderBoard();
-  renderDecisions();
-  renderGraph();
-  buildFilterOptions();
-  renderWorkTable();
 }
 
 /* ============================================================
@@ -248,12 +226,14 @@ function renderDashboard() {
   const b = STATUS.benchmark;
   const bVal = b && b.current != null ? Number(b.current) : null;
   const bMax = b && b.scale_max ? Number(b.scale_max) : 100;
-  setBar('#bar-benchmark', '#val-benchmark', bVal == null ? null : (bVal / bMax) * 100, bVal == null ? 'nicht gemessen' : null);
+  setBar('#bar-benchmark', '#val-benchmark',
+         bVal == null ? null : (bVal / bMax) * 100,
+         bVal == null ? 'nicht gemessen' : null);
 
   renderNow();
   renderNext();
   renderBlocked();
-  renderDecisionSummary();
+  renderEntscheidungen();
   renderAgents();
   renderLocks();
   renderBuild();
@@ -262,9 +242,9 @@ function renderDashboard() {
 function num(v) { const n = Number(v); return isFinite(n) ? n : null; }
 
 function setBar(barSel, valSel, pct, ersatzText) {
-  const v = pct == null ? 0 : Math.max(0, Math.min(100, pct));
-  $(barSel).style.width = v + '%';
-  $(valSel).textContent = ersatzText ? ersatzText : (pct == null ? '–' : Math.round(pct * 10) / 10 + ' %');
+  $(barSel).style.width = (pct == null ? 0 : Math.max(0, Math.min(100, pct))) + '%';
+  $(valSel).textContent = ersatzText ? ersatzText
+    : (pct == null ? '–' : Math.round(pct * 10) / 10 + ' %');
 }
 
 function workButton(w, meta) {
@@ -307,35 +287,85 @@ function renderBlocked() {
   });
 }
 
-function renderDecisionSummary() {
+/* Entscheidungen stehen im Dashboard und werden dort aufgeklappt und
+   getroffen. Eine eigene Ansicht dafür wäre ein zweiter Ort für dieselbe
+   Sache. */
+function renderEntscheidungen() {
   const ul = $('#decision-list'); clear(ul);
   const rows = STATUS.decisions || [];
   $('#decision-count').textContent = rows.length;
-  $('#tab-dec-badge').textContent = rows.length ? String(rows.length) : '';
   if (!rows.length) { ul.appendChild(emptyLi('Keine offene Entscheidung.')); return; }
+
   rows.forEach((d) => {
     const li = el('li');
-    const btn = el('button', 'item');
-    btn.type = 'button';
-    btn.appendChild(el('span', 'item-id', 'DEC-' + d.decision_id));
-    btn.appendChild(el('span', 'item-title', d.title));
-    btn.addEventListener('click', () => activateTab('decisions'));
-    li.appendChild(btn);
 
-    /* Frage und Empfehlung als eigene Zeilen. Beide können beliebig lang
-       sein — in der Kopfzeile würden sie die Kachel sprengen. */
-    if (d.question) li.appendChild(el('div', 'item-sub', kuerzen(d.question, 160)));
-    if (d.recommendation) {
-      li.appendChild(el('div', 'item-sub', 'Empfehlung: ' + kuerzen(d.recommendation, 120)));
+    const kopf = el('button', 'item');
+    kopf.type = 'button';
+    kopf.appendChild(el('span', 'item-id', 'DEC-' + d.decision_id));
+    kopf.appendChild(el('span', 'item-title', d.title));
+    kopf.appendChild(el('span', 'item-meta', 'öffnen'));
+    li.appendChild(kopf);
+
+    const feld = el('div', 'dec-inline');
+    feld.hidden = true;
+
+    if (d.question) feld.appendChild(el('p', 'dec-frage', d.question));
+
+    let gewaehlt = null;
+    const knoepfe = [];
+    (d.options || []).forEach((o) => {
+      const key   = (o && typeof o === 'object') ? String(o.key || '') : '';
+      const label = (o && typeof o === 'object') ? String(o.label || '') : String(o);
+      const b = el('button', 'opt');
+      b.type = 'button';
+      b.dataset.option = key;
+      b.appendChild(el('span', 'opt-mark', '○'));
+      b.appendChild(el('span', 'opt-text', key ? key + ' — ' + label : label));
+      if (d.recommendation && key && String(d.recommendation).trim().startsWith(key)) {
+        b.appendChild(el('span', 'opt-rec', 'EMPFOHLEN'));
+      }
+      if (MODE === 'live' && key) {
+        b.addEventListener('click', () => {
+          gewaehlt = key;
+          knoepfe.forEach((x) => {
+            const an = x.dataset.option === key;
+            x.classList.toggle('is-chosen', an);
+            x.querySelector('.opt-mark').textContent = an ? '●' : '○';
+          });
+        });
+      } else { b.disabled = true; }
+      knoepfe.push(b);
+      feld.appendChild(b);
+    });
+
+    if (d.recommendation) feld.appendChild(el('div', 'dec-empfehlung', 'Empfehlung: ' + d.recommendation));
+
+    if (MODE === 'live') {
+      const ta = el('textarea', 'dec-inline-why');
+      ta.placeholder = 'Begründung — sie wird mitgespeichert und später gelesen.';
+      feld.appendChild(ta);
+
+      const senden = el('button', 'btn-primary', 'Entscheidung festhalten');
+      senden.addEventListener('click', async () => {
+        if (!gewaehlt) {
+          showError({ message: 'Bitte zuerst eine Option wählen.', error_code: 'keine_auswahl' }, 'Noch nichts gewählt');
+          return;
+        }
+        senden.disabled = true;
+        const res = await ControlAPI.resolveDecision(d.decision_id, gewaehlt, ta.value);
+        senden.disabled = false;
+        if (!res.ok) { showError(res, 'Entscheidung konnte nicht gespeichert werden'); return; }
+        await loadLive();
+      });
+      feld.appendChild(senden);
+    } else {
+      feld.appendChild(el('div', 'empty', 'Entscheiden geht nur mit Anmeldung.'));
     }
+
+    kopf.addEventListener('click', () => { feld.hidden = !feld.hidden; });
+    li.appendChild(feld);
     ul.appendChild(li);
   });
-}
-
-function agentName(slug) {
-  if (!slug) return 'ohne Owner';
-  const a = (STATUS.agents || {})[slug];
-  return a && a.name ? a.name : slug;
 }
 
 function renderAgents() {
@@ -375,16 +405,13 @@ function renderBuild() {
   const builds = STATUS.builds || {};
   const envs = Object.keys(builds);
   const drift = $('#build-drift');
-  const panel = $('#panel-build');
 
   if (!envs.length) {
     grid.appendChild(el('div', 'empty', 'Noch kein Build-Stand gemeldet.'));
     drift.className = 'drift';
     drift.textContent = 'Ohne gemeldeten Build lässt sich kein Drift feststellen. Es wird nichts vermutet.';
-    panel.classList.remove('has-drift');
     return;
   }
-
   envs.forEach((env) => {
     const b = builds[env] || {};
     const box = el('div');
@@ -393,28 +420,24 @@ function renderBuild() {
     if (b.measured_at) box.appendChild(el('span', 'build-when', shortTime(b.measured_at)));
     grid.appendChild(box);
   });
-
-  /* Der Server meldet derzeit keinen Drift-Wert. Die UI berechnet ihn NICHT
-     (Abschnitt 24) und behauptet deshalb auch keinen. */
+  /* Der Server meldet keinen Drift-Wert. Die UI leitet ihn NICHT ab (ARCH-01). */
   drift.className = 'drift';
   drift.textContent = 'Drift wird vom Server nicht gemeldet. Die Oberfläche leitet ihn nicht selbst ab.';
-  panel.classList.remove('has-drift');
 }
 
 /* ============================================================
-   ZUSTÄNDIGKEIT — Board
+   ZUSTÄNDIGKEIT — steht im Dashboard
    ============================================================ */
 
 function renderBoard() {
   const board = $('#board'); clear(board);
   const agents = STATUS.agents || {};
-
   AGENT_ORDER.forEach((slug) => board.appendChild(buildColumn(slug, agents[slug])));
   board.appendChild(buildColumn(UNASSIGNED, null));
 
   $('#board-mode').textContent = MODE === 'live'
-    ? 'Die Oberfläche entscheidet nicht selbst. Sie sendet den Wunsch an den Server; der Server erlaubt oder lehnt ab.'
-    : 'DEMO-Ansicht ohne Token: Verschieben ist deaktiviert, weil es keinen Server gibt, der es entscheiden könnte.';
+    ? 'Karte auf eine andere Spalte ziehen, oder antippen und im Detail umstellen. Der Server entscheidet, ob es erlaubt ist.'
+    : 'Demo-Ansicht: Verschieben ist abgeschaltet, weil kein Server da ist, der es entscheiden könnte.';
 }
 
 function buildColumn(slug, agent) {
@@ -425,7 +448,8 @@ function buildColumn(slug, agent) {
   head.appendChild(el('span', 'col-name', slug === UNASSIGNED ? 'Nicht zugewiesen' : (agent && agent.name) || slug));
   if (agent) head.appendChild(el('span', 'agent-state st-' + agent.state, agent.state));
 
-  const cards = [...WORKS.values()].filter((w) => (w.owner || UNASSIGNED) === slug)
+  const cards = [...WORKS.values()]
+    .filter((w) => (w.owner || UNASSIGNED) === slug)
     .sort((a, b) => (b.priority || 0) - (a.priority || 0) || a.work_id - b.work_id);
   head.appendChild(el('span', 'col-count', cards.length));
   col.appendChild(head);
@@ -484,8 +508,8 @@ function buildCard(w) {
   return card;
 }
 
-/* Der Kern von Work #1: Wunsch senden, Antwort zeigen.
-   KEINE Vorabprüfung — nicht auf Lock, nicht auf Status, nicht auf Rechte. */
+/* Wunsch senden, Antwort zeigen. KEINE Vorabprüfung — nicht auf Lock,
+   nicht auf Status, nicht auf Rechte (Regel ARCH-02). */
 async function requestAssign(workId, ownerSlug) {
   if (MODE !== 'live') return;
   hideError();
@@ -494,124 +518,20 @@ async function requestAssign(workId, ownerSlug) {
   const res = await ControlAPI.assignWork(workId, ownerSlug === UNASSIGNED ? '' : ownerSlug);
 
   if (!res.ok) {
-    /* Erst den Serverstand neu lesen, DANN die Ablehnung zeigen.
-       Umgekehrt würde loadLive() die Meldung sofort wieder wegräumen —
-       der Projektmanager sähe nie, warum es nicht ging. */
+    /* Erst neu lesen, DANN die Ablehnung zeigen — sonst räumt loadLive()
+       die Meldung sofort wieder weg. */
     await loadLive();
     $('#loading').hidden = true;
     showError(res, 'Zuständigkeit konnte nicht geändert werden');
     return;
   }
-
-  DETAILS.delete(String(workId));  /* Detail neu holen, nicht raten */
-  await loadLive();                /* Punkt 7: nach Erfolg neu lesen */
+  DETAILS.delete(String(workId));
+  await loadLive();
   console.info('[control-center] assign_work angenommen:', workId, '->', ownerSlug);
 }
 
 /* ============================================================
-   ENTSCHEIDUNGEN — Anzeige
-   ============================================================ */
-
-function renderDecisions() {
-  const wrap = $('#decision-cards'); clear(wrap);
-  const rows = STATUS.decisions || [];
-
-  const darfEntscheiden = MODE === 'live';
-  $('#dec-hint').textContent = darfEntscheiden
-    ? 'Eine Entscheidung ist dauerhaft. Der Server prüft, ob deine Anmeldung sie treffen darf.'
-    : 'In der Demo-Ansicht lässt sich nichts entscheiden — es gibt keinen Server, der es festhalten könnte.';
-
-  if (!rows.length) {
-    const p = el('div', 'panel');
-    p.appendChild(el('div', 'empty', 'Keine offene Entscheidung.'));
-    wrap.appendChild(p);
-    return;
-  }
-
-  rows.forEach((d) => {
-    const card = el('section', 'dec is-open');
-    const head = el('div', 'dec-head');
-    head.appendChild(el('span', 'dec-id', 'DEC-' + d.decision_id));
-    head.appendChild(el('span', 'status status-decision_required', 'offen'));
-    card.appendChild(head);
-    card.appendChild(el('h2', 'dec-title', d.title));
-    card.appendChild(el('p', 'dec-question', d.question));
-
-    if (d.work_id != null) {
-      const w = WORKS.get(String(d.work_id));
-      card.appendChild(el('div', 'dec-meta', 'betrifft #' + d.work_id + (w ? ' · ' + w.title : '')));
-    }
-
-    /* Optionen. Der Server liefert sie als Liste von Objekten mit key und
-       label — die UI liest nichts aus Texten heraus und rät keine Kürzel. */
-    let gewaehlt = null;
-    const optKnoepfe = [];
-    (d.options || []).forEach((o) => {
-      const key   = (o && typeof o === 'object') ? String(o.key || '') : '';
-      const label = (o && typeof o === 'object') ? String(o.label || '') : String(o);
-      const btn = el('button', 'opt');
-      btn.type = 'button';
-      btn.dataset.option = key;
-      btn.appendChild(el('span', 'opt-mark', '○'));
-      btn.appendChild(el('span', 'opt-text', key ? key + ' — ' + label : label));
-      if (d.recommendation && key && d.recommendation.trim().startsWith(key)) {
-        btn.appendChild(el('span', 'opt-rec', 'EMPFOHLEN'));
-      }
-      if (darfEntscheiden && key) {
-        btn.addEventListener('click', () => {
-          gewaehlt = key;
-          optKnoepfe.forEach((b) => {
-            const an = b.dataset.option === key;
-            b.classList.toggle('is-chosen', an);
-            b.querySelector('.opt-mark').textContent = an ? '●' : '○';
-          });
-        });
-      } else {
-        btn.disabled = true;
-      }
-      optKnoepfe.push(btn);
-      card.appendChild(btn);
-    });
-
-    if (d.recommendation) {
-      card.appendChild(el('div', 'dec-meta', 'Empfehlung der Agenten: ' + d.recommendation));
-    }
-
-    if (!darfEntscheiden) { wrap.appendChild(card); return; }
-
-    const why = el('div', 'dec-why');
-    const lbl = el('label', null, 'Begründung — sie wird mitgespeichert');
-    lbl.htmlFor = 'why-' + d.decision_id;
-    why.appendChild(lbl);
-    const ta = el('textarea');
-    ta.id = 'why-' + d.decision_id;
-    ta.placeholder = 'Warum diese Option? Das liest später jemand, der nicht dabei war.';
-    why.appendChild(ta);
-    card.appendChild(why);
-
-    const foot = el('div', 'dec-foot');
-    const senden = el('button', 'btn-primary', 'Entscheidung festhalten');
-    senden.addEventListener('click', async () => {
-      if (!gewaehlt) { showError({ message: 'Bitte zuerst eine Option wählen.', error_code: 'keine_auswahl' }, 'Noch nichts gewählt'); return; }
-      senden.disabled = true;
-      const res = await ControlAPI.resolveDecision(d.decision_id, gewaehlt, ta.value);
-      senden.disabled = false;
-      if (!res.ok) { showError(res, 'Entscheidung konnte nicht gespeichert werden'); return; }
-      await loadLive();                       /* Serverstand bleibt maßgeblich */
-      console.info('[control-center] Entscheidung gespeichert:', d.decision_id, gewaehlt);
-    });
-    foot.appendChild(senden);
-    card.appendChild(foot);
-
-    wrap.appendChild(card);
-  });
-}
-
-/* ============================================================
    REGELWERK
-   Die Regeln des Projekts. Bearbeiten darf, wer den Scope hat —
-   das entscheidet der Server. Die Oberfläche versteckt nur die
-   Knöpfe, sie verhindert nichts (Abschnitt 41).
    ============================================================ */
 
 let REGELN = [];
@@ -619,24 +539,19 @@ let KATALOG = [];
 let REGELN_SCHREIBBAR = false;
 
 async function ladeRegeln() {
-  if (MODE !== 'live') {
-    REGELN = []; REGELN_SCHREIBBAR = false;
-    renderRegeln();
-    return;
-  }
+  if (MODE !== 'live') { REGELN = []; REGELN_SCHREIBBAR = false; renderRegeln(); return; }
+
   const res = await ControlAPI.listRules();
   if (!res.ok) {
     REGELN = [];
-    /* "scope denied" heißt nicht Fehler, sondern: darf nicht lesen. */
     if (res.error_code !== 'scope denied') showError(res, 'Regelwerk konnte nicht geladen werden');
     renderRegeln();
     return;
   }
   REGELN = Array.isArray(res.result) ? res.result : [];
 
-  /* Was erlaubt ist, sagt der Server in jeder Antwort mit. Vorher wurde
-     dafür testweise geschrieben — ein Leseaufruf, der bei jedem Laden das
-     Standard-Set anwandte. Jetzt wird nur gefragt. */
+  /* Was erlaubt ist, sagt der Server in jeder Antwort mit. Es wird NICHT
+     probeweise geschrieben, um das herauszufinden. */
   REGELN_SCHREIBBAR = ControlAPI.darf('update_rule');
   renderRegeln();
 }
@@ -646,25 +561,23 @@ function renderRegeln() {
   $('#regel-nur-lesen').hidden = REGELN_SCHREIBBAR || MODE !== 'live';
   ['#regel-standard', '#regel-katalog-btn'].forEach((s) => { $(s).hidden = !REGELN_SCHREIBBAR; });
 
-  const aktiv      = REGELN.filter((r) => r.active).length;
-  const abweichend = REGELN.filter((r) => r.abweichend).length;
-  const aus        = REGELN.length - aktiv;
-  $('#tab-rules-badge').textContent = abweichend ? String(abweichend) : '';
-
   const z = $('#regel-zahlen'); clear(z);
   if (MODE !== 'live') {
-    z.appendChild(el('span', 'empty', 'Regeln gibt es nur mit Anmeldung — sie stehen im Server, nicht in den Demo-Daten.'));
+    z.appendChild(el('span', 'empty', 'Regeln gibt es nur mit Anmeldung — sie stehen im Server.'));
     return;
   }
-  [[aktiv, 'aktiv'], [aus, 'abgeschaltet'], [abweichend, 'vom Standard abweichend']].forEach(([n, t]) => {
+
+  const aktiv = REGELN.filter((r) => r.active).length;
+  const abw   = REGELN.filter((r) => r.abweichend).length;
+  [[aktiv, 'aktiv'], [REGELN.length - aktiv, 'abgeschaltet'], [abw, 'angepasst']].forEach(([n, t]) => {
     const s = el('span', 'regel-zahl');
     s.appendChild(el('strong', null, n));
     s.appendChild(document.createTextNode(' ' + t));
     z.appendChild(s);
   });
 
-  const suche = $('#regel-suche').value.trim().toLowerCase();
-  const nurAb = $('#regel-nur-abweichend').checked;
+  const suche   = $('#regel-suche').value.trim().toLowerCase();
+  const nurAb   = $('#regel-nur-abweichend').checked;
   const auchAus = $('#regel-auch-inaktive').checked;
 
   const sichtbar = REGELN.filter((r) => {
@@ -681,7 +594,6 @@ function renderRegeln() {
     return;
   }
 
-  /* Nach Gruppen bündeln — 30 Regeln am Stück liest niemand. */
   const gruppen = new Map();
   sichtbar.forEach((r) => {
     const g = r.gruppe || 'Ohne Gruppe';
@@ -706,7 +618,7 @@ function buildRegel(r) {
   kopf.appendChild(el('span', 'regel-code', r.code));
   kopf.appendChild(el('span', 'schwere schwere-' + r.severity, r.severity));
   if (r.abweichend) kopf.appendChild(el('span', 'regel-flag', 'ANGEPASST'));
-  if (!r.active)   kopf.appendChild(el('span', 'regel-flag regel-flag-aus', 'ABGESCHALTET'));
+  if (!r.active)    kopf.appendChild(el('span', 'regel-flag regel-flag-aus', 'ABGESCHALTET'));
   box.appendChild(kopf);
 
   box.appendChild(el('div', 'regel-titel', r.title));
@@ -719,9 +631,7 @@ function buildRegel(r) {
 
   const schwere = el('select');
   schwere.setAttribute('aria-label', 'Schweregrad von ' + r.code);
-  ['muss', 'soll', 'hinweis'].forEach((s) => {
-    const o = el('option', null, s); o.value = s; schwere.appendChild(o);
-  });
+  ['muss', 'soll', 'hinweis'].forEach((s) => { const o = el('option', null, s); o.value = s; schwere.appendChild(o); });
   schwere.value = r.severity;
   schwere.addEventListener('change', () => regelAendern(r.code, { severity: schwere.value }));
   werkzeuge.appendChild(schwere);
@@ -815,145 +725,7 @@ async function zeigeKatalog() {
 }
 
 /* ============================================================
-   ABHÄNGIGKEITEN
-   ============================================================ */
-
-function renderGraph() {
-  const legend = $('#graph-legend'); clear(legend);
-  [['g-st-done', 'fertig'], ['g-st-in_progress', 'läuft'], ['g-st-open', 'geplant'],
-   ['g-st-blocked', 'blockiert / Entscheidung nötig'], ['g-st-ready_for_verification', 'wartet auf Prüfung']
-  ].forEach(([cls, text]) => {
-    const s = el('span', null, text);
-    const dot = el('i', cls);
-    dot.style.cssText = 'border-left-width:11px;border-left-style:solid;border-radius:2px';
-    s.insertBefore(dot, s.firstChild);
-    legend.appendChild(s);
-  });
-
-  const graph = $('#graph'); clear(graph);
-  const works = [...WORKS.values()];
-  if (!works.length) { graph.appendChild(el('div', 'empty', 'Keine Work Items.')); return; }
-
-  /* depends_on steht nur im Detail. Was noch nicht geladen ist, gilt als
-     "nicht bekannt" — es wird nichts angenommen. */
-  const deps = (w) => {
-    const d = DETAILS.get(String(w.work_id));
-    return d && Array.isArray(d.depends_on) ? d.depends_on.map(String) : [];
-  };
-
-  const placed = new Set();
-  const levels = [];
-  let rest = works.slice();
-  let guard = 0;
-
-  while (rest.length && guard++ < 25) {
-    const ready = rest.filter((w) => deps(w).every((id) => placed.has(id) || !WORKS.has(id)));
-    if (!ready.length) { levels.push(rest.slice()); break; }
-    ready.forEach((w) => placed.add(String(w.work_id)));
-    levels.push(ready.sort((a, b) => (b.priority || 0) - (a.priority || 0)));
-    rest = rest.filter((w) => !placed.has(String(w.work_id)));
-  }
-
-  levels.forEach((level, i) => {
-    if (i > 0) graph.appendChild(el('div', 'g-arrow', '↓'));
-    graph.appendChild(el('div', 'g-level-label', i === 0 ? 'Kann sofort laufen' : 'Wartet auf die Ebene darüber'));
-    const row = el('div', 'g-level');
-    level.forEach((w) => row.appendChild(buildGraphNode(w, deps(w))));
-    graph.appendChild(row);
-  });
-
-  const ungeladen = works.filter((w) => !DETAILS.has(String(w.work_id))).length;
-  if (ungeladen && MODE === 'live') {
-    graph.appendChild(el('div', 'graph-note',
-      ungeladen + ' Work Item(s) sind noch nicht im Detail geladen. Abhängigkeiten erscheinen, sobald sie geöffnet wurden.'));
-  }
-}
-
-function buildGraphNode(w, deps) {
-  const node = el('div', 'g-node g-st-' + (w.status || 'open'));
-  const top = el('div', 'g-top');
-  top.appendChild(el('span', 'g-id', '#' + w.work_id));
-  const band = bandOf(w.work_id);
-  if (band) top.appendChild(el('span', 'band band-' + band, band));
-  node.appendChild(top);
-  node.appendChild(el('div', 'g-title', w.title || '(ohne Titel)'));
-  if (deps.length) node.appendChild(el('div', 'g-wait', 'wartet auf #' + deps.join(', #')));
-  if (w.blocker) node.appendChild(el('div', 'card-blocker', w.blocker));
-  node.appendChild(el('div', 'item-meta', agentName(w.owner)));
-  node.addEventListener('click', () => openWork(w.work_id));
-  return node;
-}
-
-/* ============================================================
-   WORK-LISTE
-   ============================================================ */
-
-function buildFilterOptions() {
-  const stSel = $('#f-status'), agSel = $('#f-agent');
-  const keepSt = stSel.value, keepAg = agSel.value;
-  clear(stSel); clear(agSel);
-
-  const o0 = el('option', null, 'Status: alle'); o0.value = ''; stSel.appendChild(o0);
-  [...new Set([...WORKS.values()].map((w) => w.status).filter(Boolean))].sort().forEach((s) => {
-    const o = el('option', null, 'Status: ' + s); o.value = s; stSel.appendChild(o);
-  });
-
-  const a0 = el('option', null, 'Agent: alle'); a0.value = ''; agSel.appendChild(a0);
-  AGENT_ORDER.forEach((slug) => {
-    const o = el('option', null, 'Agent: ' + agentName(slug)); o.value = slug; agSel.appendChild(o);
-  });
-  const an = el('option', null, 'Agent: nicht zugewiesen'); an.value = UNASSIGNED; agSel.appendChild(an);
-
-  stSel.value = keepSt; agSel.value = keepAg;
-}
-
-function renderWorkTable() {
-  const q = $('#f-search').value.trim().toLowerCase();
-  const fs = $('#f-status').value, fa = $('#f-agent').value;
-
-  const rows = [...WORKS.values()].filter((w) => {
-    if (fs && w.status !== fs) return false;
-    if (fa && (w.owner || UNASSIGNED) !== fa) return false;
-    if (q && !((String(w.work_id) + ' ' + (w.title || '')).toLowerCase().includes(q))) return false;
-    return true;
-  }).sort((a, b) => (b.priority || 0) - (a.priority || 0) || a.work_id - b.work_id);
-
-  $('#f-count').textContent = rows.length + ' von ' + WORKS.size;
-  $('#work-note').textContent = MODE === 'live'
-    ? 'Die Control API liefert keine vollständige Work-Liste. Gezeigt wird, was project_status unter Jetzt, Danach und Blockiert meldet.'
-    : 'Demo-Daten — keine Projektwahrheit.';
-
-  const tb = $('#work-tbody'); clear(tb);
-  if (!rows.length) {
-    const tr = el('tr'); const td = el('td', 'td-dim', 'Kein Work Item passt.');
-    td.colSpan = 6; tr.appendChild(td); tb.appendChild(tr); return;
-  }
-
-  rows.forEach((w) => {
-    const tr = el('tr');
-    tr.appendChild(el('td', 'td-id', '#' + w.work_id));
-    tr.appendChild(el('td', null, w.title || '(ohne Titel)'));
-
-    const band = bandOf(w.work_id);
-    const tdP = el('td', 'td-prio');
-    if (band) tdP.appendChild(el('span', 'band band-' + band, band));
-    tdP.appendChild(document.createTextNode(' ' + (w.priority != null ? w.priority : '–')));
-    tr.appendChild(tdP);
-
-    const tdS = el('td');
-    if (w.status) tdS.appendChild(el('span', 'status status-' + w.status, w.status));
-    tr.appendChild(tdS);
-
-    tr.appendChild(el('td', w.owner ? null : 'td-dim', agentName(w.owner)));
-    tr.appendChild(el('td', w.blocker ? 'td-blocker' : 'td-dim', w.blocker || '–'));
-
-    tr.addEventListener('click', () => openWork(w.work_id));
-    tb.appendChild(tr);
-  });
-}
-
-/* ============================================================
-   WORK-DETAIL
+   WORK-DETAIL — kein Reiter, öffnet über Klick
    ============================================================ */
 
 async function openWork(workId) {
@@ -988,7 +760,6 @@ async function openWork(workId) {
     body.appendChild(s);
   }
 
-  /* Zuständigkeit ändern — der Weg ohne Ziehen, auch am Handy */
   const own = section('Zuständig');
   const pick = el('div', 'owner-pick');
   const sel = el('select');
@@ -1009,11 +780,9 @@ async function openWork(workId) {
 
   const facts = section('Einordnung');
   const grid = el('div', 'd-facts');
-  [['Hauptpfad', w.path || '–'],
-   ['Risiko', w.risk_level || '–'],
+  [['Hauptpfad', w.path || '–'], ['Risiko', w.risk_level || '–'],
    ['Parent', w.parent_work_id != null ? '#' + w.parent_work_id : '–'],
-   ['Projekt', w.project || '–']
-  ].forEach(([k, v]) => {
+   ['Projekt', w.project || '–']].forEach(([k, v]) => {
     const f = el('div', 'd-fact');
     f.appendChild(el('span', 'd-fact-k', k));
     f.appendChild(el('span', 'd-fact-v', v));
@@ -1034,7 +803,6 @@ async function openWork(workId) {
   body.appendChild(chips('Wartet auf', (w.depends_on || []).map((x) => '#' + x), 'Keine Abhängigkeiten.'));
   body.appendChild(chips('Blockiert', (w.blocks || []).map((x) => '#' + x), 'Blockiert nichts.'));
   body.appendChild(chips('Pflicht-Evidence', w.required_evidence, 'Keine gefordert.'));
-  body.appendChild(chips('Betroffene Systeme', w.affected_systems, 'Keine benannt.'));
   body.appendChild(chips('Betroffene Ressourcen', w.affected_resources, 'Keine benannt.'));
 
   const myLocks = LOCKS.filter((l) => String(l.work_id) === String(w.work_id));
@@ -1077,21 +845,16 @@ function chips(title, values, leerText) {
   return s;
 }
 
-function schliesseKatalog() {
-  $('#katalog').hidden = true;
-  document.body.style.overflow = '';
-}
-
-function closeDrawer() {
-  $('#overlay').hidden = true;
-  document.body.style.overflow = '';
-}
+function schliesseKatalog() { $('#katalog').hidden = true; document.body.style.overflow = ''; }
+function closeDrawer()      { $('#overlay').hidden = true; document.body.style.overflow = ''; }
 
 /* ============================================================
    Ansichten und Bedienung
    ============================================================ */
 
-const VIEWS = ['token', 'dashboard', 'board', 'decisions', 'graph', 'works', 'rules'];
+/* Drei Ansichten: Zugang, Dashboard, Regelwerk. Zwei davon haben einen
+   Reiter — der Zugang öffnet sich über das Zahnrad. */
+const VIEWS = ['token', 'dashboard', 'rules'];
 
 function showView(name) {
   VIEWS.forEach((v) => { const n = $('#view-' + v); if (n) n.hidden = v !== name; });
@@ -1108,17 +871,11 @@ function wireUi() {
     tab.addEventListener('click', () => activateTab(tab.dataset.view));
   });
 
-  ['#f-search', '#f-status', '#f-agent'].forEach((s) => $(s).addEventListener('input', renderWorkTable));
-  $('#f-reset').addEventListener('click', () => {
-    ['#f-search', '#f-status', '#f-agent'].forEach((s) => { $(s).value = ''; });
-    renderWorkTable();
-  });
-
   $('#drawer-close').addEventListener('click', closeDrawer);
   $('#overlay').addEventListener('click', (e) => { if (e.target === $('#overlay')) closeDrawer(); });
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape') { closeDrawer(); schliesseKatalog(); } });
-
   $('#err-close').addEventListener('click', hideError);
+  $('#reload-btn').addEventListener('click', () => { if (MODE === 'live') loadLive(); else loadDemo(); });
 
   /* Regelwerk */
   ['#regel-suche', '#regel-nur-abweichend', '#regel-auch-inaktive'].forEach((sel) => {
@@ -1134,15 +891,14 @@ function wireUi() {
   $('#regel-katalog-btn').addEventListener('click', zeigeKatalog);
   $('#katalog-close').addEventListener('click', schliesseKatalog);
   $('#katalog').addEventListener('click', (e) => { if (e.target === $('#katalog')) schliesseKatalog(); });
-  $('#reload-btn').addEventListener('click', () => { if (MODE === 'live') loadLive(); else loadDemo(); });
 
+  /* Zugang */
   $('#token-btn').addEventListener('click', () => {
     $('#token-endpoint').textContent = ControlAPI.endpoint;
     zeigeAnmeldung();
     showView('token');
   });
 
-  /* Anmeldung mit E-Mail und Passwort */
   $('#login-form').addEventListener('submit', async (e) => {
     e.preventDefault();
     const mail = $('#login-mail').value.trim();
@@ -1182,7 +938,6 @@ function wireUi() {
   $('#token-demo').addEventListener('click', () => { activateTab('dashboard'); loadDemo(); });
 }
 
-/* Zeigt an, wer gerade angemeldet ist — oder dass niemand es ist. */
 function zeigeAnmeldung() {
   const box = $('#angemeldet-als');
   const w = ControlAPI.wer();
@@ -1194,9 +949,7 @@ function zeigeAnmeldung() {
     ? 'Angemeldet als ' + (w.email || 'unbekannt')
     : 'Angemeldet über Agent-Token'));
 
-  /* Ehrlich sagen, wenn die Anmeldung das Neuladen nicht überlebt.
-     Sonst wirkt es wie ein Fehler der Anmeldung, obwohl der Browser
-     bei geöffneten Dateien einfach nichts speichern darf. */
+  /* Ehrlich sagen, wenn die Anmeldung das Neuladen nicht überlebt. */
   if (!w.dauerhaft) {
     box.appendChild(el('span', 'angemeldet-warn',
       '— nur bis zum Neuladen. Dieser Browser speichert für lokal geöffnete Dateien nichts.'));
@@ -1208,18 +961,18 @@ async function boot() {
   $('#token-endpoint').textContent = ControlAPI.endpoint;
   zeigeAnmeldung();
 
-  /* Build sichtbar machen: nur so lässt sich am Handy prüfen, ob der
-     neue Stand wirklich angekommen ist, statt es zu vermuten. */
   const bn = $('#build-nr');
   if (bn) bn.textContent = APP_BUILD;
   console.info('[control-center] Build', APP_BUILD);
 
   if (ControlAPI.angemeldet()) {
+    /* Das Dashboard steht im HTML auf "versteckt" — ohne diesen Aufruf
+       bliebe die Seite nach der Anmeldung leer. */
+    activateTab('dashboard');
     const ok = await loadLive();
-    if (!ok && !STATUS) loadDemo();      /* damit die Seite nicht leer bleibt */
+    if (!ok && !STATUS) loadDemo();
     return;
   }
-  /* Nicht angemeldet: Demo zeigen und die Anmeldung anbieten. */
   loadDemo();
   showView('token');
 }
