@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="color-scheme" content="dark">
 <title>Project Control Center</title>
-<link rel="stylesheet" href="styles.css?v=2026-08-24-2330">
+<link rel="stylesheet" href="styles.css?v=2026-08-25-0015">
 </head>
 <body>
 
@@ -106,6 +106,11 @@
       </div>
     </section>
 
+    <div class="dashboard-werkzeuge">
+      <button class="btn-primary" id="neue-aufgabe-btn" hidden>+ Neue Aufgabe</button>
+      <span class="werkzeug-hinweis" id="werkzeug-hinweis"></span>
+    </div>
+
     <div class="grid">
 
       <section class="panel">
@@ -194,6 +199,47 @@
   </div>
 </div>
 
+<!-- ============ NEUE AUFGABE ============ -->
+<div id="neue-aufgabe" class="overlay" hidden>
+  <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="na-titel">
+    <button class="drawer-close" id="na-close" aria-label="Schließen">&times;</button>
+    <h2 class="d-title" id="na-titel">Neue Aufgabe</h2>
+    <p class="d-goal" id="na-projekt"></p>
+
+    <label class="token-label" for="na-title">Titel</label>
+    <input type="text" id="na-title" placeholder="Was soll getan werden?" autocomplete="off">
+
+    <label class="token-label" for="na-goal">Ziel <span class="np-optional">optional</span></label>
+    <input type="text" id="na-goal" placeholder="Woran erkennt man, dass es hilft?" autocomplete="off">
+
+    <label class="token-label" for="na-desc">Beschreibung <span class="np-optional">optional</span></label>
+    <textarea id="na-desc" placeholder="Was ist zu beachten?"></textarea>
+
+    <div class="na-zeile">
+      <div class="na-feld">
+        <label class="token-label" for="na-prio">Priorität <span class="np-optional">0–100</span></label>
+        <input type="number" id="na-prio" min="0" max="100" step="5" value="50">
+      </div>
+      <div class="na-feld">
+        <label class="token-label" for="na-owner">Zuständig</label>
+        <select id="na-owner"></select>
+      </div>
+    </div>
+
+    <label class="token-label" for="na-dod">Definition of Done <span class="np-optional">eine Zeile je Punkt</span></label>
+    <textarea id="na-dod" placeholder="Woran misst man, dass es fertig ist?"></textarea>
+
+    <label class="schalter na-schalter">
+      <input type="checkbox" id="na-verify"> Prüfung durch einen anderen Agenten nötig
+    </label>
+
+    <div class="token-actions">
+      <button class="btn-primary" id="na-anlegen">Aufgabe anlegen</button>
+      <button class="btn-reset" id="na-abbrechen">Abbrechen</button>
+    </div>
+  </div>
+</div>
+
 <!-- ============ BAUKASTEN ============ -->
 <div id="katalog" class="overlay" hidden>
   <div class="drawer" role="dialog" aria-modal="true">
@@ -216,8 +262,8 @@
 </div>
 
 <!-- Datenquellen: erst die Fallback-Demo, dann die echte API, dann die Anzeige -->
-<script src="project-state.js?v=2026-08-24-2330"></script>
-<script src="control-api.js?v=2026-08-24-2330"></script>
-<script src="app.js?v=2026-08-24-2330"></script>
+<script src="project-state.js?v=2026-08-25-0015"></script>
+<script src="control-api.js?v=2026-08-25-0015"></script>
+<script src="app.js?v=2026-08-25-0015"></script>
 </body>
 </html>

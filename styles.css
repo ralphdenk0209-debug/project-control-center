@@ -627,3 +627,17 @@ code{font-family:var(--mono);font-size:.92em;background:var(--panel-2);padding:1
 }
 
 .src-lesen{background:rgba(76,141,255,.15);color:var(--accent);border-color:rgba(76,141,255,.4)}
+
+/* ---------- Neue Aufgabe ---------- */
+.dashboard-werkzeuge{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:16px}
+.werkzeug-hinweis{font-size:13px;color:var(--text-dim)}
+#na-title,#na-goal,#na-desc,#na-dod,#na-prio,#na-owner{
+  width:100%;background:var(--panel-2);border:1px solid var(--line);color:var(--text);
+  border-radius:6px;padding:10px 12px;font:inherit;font-size:15px;margin-bottom:12px;
+}
+#na-desc,#na-dod{min-height:70px;resize:vertical}
+#na-title:focus,#na-goal:focus,#na-desc:focus,#na-dod:focus,#na-prio:focus,#na-owner:focus{
+  outline:none;border-color:var(--accent)}
+.na-zeile{display:flex;gap:12px}
+.na-feld{flex:1;min-width:0}
+.na-schalter{margin-bottom:4px}

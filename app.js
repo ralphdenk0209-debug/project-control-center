@@ -25,7 +25,7 @@
    damit die ?v=-Angaben in index.html sowie build.txt nach. Ohne sie liefert
    der Browser nach einem Deploy weiter die alten Dateien aus.
    Vor jedem Deploy hochzählen. */
-const APP_BUILD = "2026-08-24-2330";
+const APP_BUILD = "2026-08-25-0015";
 
 /* ---------- Zustand der Anzeige ---------- */
 
@@ -63,6 +63,14 @@ function shortTime(iso) {
 function bandOf(workId) {
   const d = DETAILS.get(String(workId));
   return d && d.priority_band ? d.priority_band : null;
+}
+
+/* Kennung einer Aufgabe: Kuerzel des Projekts plus Nummer, z.B. PCC-3.
+   Das Kuerzel liefert der Server — die Oberflaeche setzt es nicht selbst
+   zusammen und raet es schon gar nicht (ARCH-01). */
+function kennung(workId) {
+  const k = STATUS && STATUS.project && STATUS.project.kuerzel;
+  return (k ? k + '-' : '#') + workId;
 }
 
 function agentName(slug) {
@@ -235,6 +243,13 @@ function renderDashboard() {
          bVal == null ? null : (bVal / bMax) * 100,
          bVal == null ? 'nicht gemessen' : null);
 
+  /* Anlegen anbieten, wenn der Server es erlaubt und das Projekt nicht
+     nur gelesen wird. */
+  const darfAnlegen = MODE === 'live' && !NUR_LESEN && ControlAPI.darf('create_work');
+  $('#neue-aufgabe-btn').hidden = !darfAnlegen;
+  $('#werkzeug-hinweis').textContent = NUR_LESEN
+    ? 'Nur-Lesen — Aufgaben gehören in die Quelle, nicht hierher.' : '';
+
   renderNow();
   renderNext();
   renderBlocked();
@@ -251,7 +266,7 @@ function setBar(barSel, valSel, pct, ersatzText) {
 function workButton(w, meta) {
   const btn = el('button', 'item');
   btn.type = 'button';
-  btn.appendChild(el('span', 'item-id', '#' + w.work_id));
+  btn.appendChild(el('span', 'item-id', kennung(w.work_id)));
   btn.appendChild(el('span', 'item-title', w.title || '(ohne Titel)'));
   const band = bandOf(w.work_id);
   if (band) btn.appendChild(el('span', 'band band-' + band, band));
@@ -343,7 +358,7 @@ function buildCard(w) {
   card.draggable = MODE === 'live' && !NUR_LESEN;
 
   const top = el('div', 'card-top');
-  top.appendChild(el('span', 'card-id', '#' + w.work_id));
+  top.appendChild(el('span', 'card-id', kennung(w.work_id)));
   if (band) top.appendChild(el('span', 'band band-' + band, band));
   else if (w.priority != null) top.appendChild(el('span', 'item-meta', 'Prio ' + w.priority));
   card.appendChild(top);
@@ -477,6 +492,62 @@ async function projektAnlegen() {
   await projektWechseln(res.result.slug);
   console.info('[control-center] Projekt angelegt:', res.result.slug,
     '·', res.result.regeln_uebernommen, 'Regeln übernommen');
+}
+
+/* ============================================================
+   NEUE AUFGABE
+   Bisher entstanden Aufgaben nur per direktem SQL — genau der Weg,
+   den ARBEIT-01 verbietet. Jetzt gibt es einen.
+   ============================================================ */
+
+function zeigeNeueAufgabe() {
+  ['#na-title','#na-goal','#na-desc','#na-dod'].forEach((s) => { $(s).value = ''; });
+  $('#na-prio').value = 50;
+  $('#na-verify').checked = false;
+
+  const sel = $('#na-owner'); clear(sel);
+  const keiner = el('option', null, 'noch niemand'); keiner.value = ''; sel.appendChild(keiner);
+  AGENT_ORDER.forEach((slug) => { const o = el('option', null, agentName(slug)); o.value = slug; sel.appendChild(o); });
+
+  $('#na-projekt').textContent = 'Wird angelegt in: ' +
+    ((STATUS && STATUS.project && STATUS.project.name) || 'diesem Projekt');
+
+  $('#neue-aufgabe').hidden = false;
+  document.body.style.overflow = 'hidden';
+  $('#na-title').focus();
+}
+
+function schliesseNeueAufgabe() {
+  $('#neue-aufgabe').hidden = true;
+  document.body.style.overflow = '';
+}
+
+async function aufgabeAnlegen() {
+  const titel = $('#na-title').value.trim();
+  if (!titel) { showError({ message: 'Bitte einen Titel eingeben.', error_code: 'titel_fehlt' }, 'Titel fehlt'); return; }
+
+  /* Definition of Done: eine Zeile je Punkt. Leere Zeilen fallen weg,
+     es wird nichts hinzugefügt. */
+  const dod = $('#na-dod').value.split('\n').map((z) => z.trim()).filter((z) => z);
+
+  const knopf = $('#na-anlegen');
+  knopf.disabled = true; knopf.textContent = 'Lege an …';
+  const res = await ControlAPI.createWork({
+    title: titel,
+    goal: $('#na-goal').value.trim() || null,
+    description: $('#na-desc').value.trim() || null,
+    priority: Number($('#na-prio').value),
+    owner_agent_slug: $('#na-owner').value || null,
+    definition_of_done: dod,
+    verification_required: $('#na-verify').checked
+  });
+  knopf.disabled = false; knopf.textContent = 'Aufgabe anlegen';
+
+  if (!res.ok) { showError(res, 'Aufgabe konnte nicht angelegt werden'); return; }
+
+  schliesseNeueAufgabe();
+  await loadLive();
+  console.info('[control-center] Aufgabe angelegt:', res.result.kennung);
 }
 
 /* ============================================================
@@ -680,7 +751,7 @@ async function zeigeKatalog() {
 async function openWork(workId) {
   const body = $('#drawer-body');
   clear(body);
-  body.appendChild(el('div', 'loading-inline', 'Lade #' + workId + ' …'));
+  body.appendChild(el('div', 'loading-inline', 'Lade ' + kennung(workId) + ' …'));
   $('#overlay').hidden = false;
   document.body.style.overflow = 'hidden';
 
@@ -688,13 +759,13 @@ async function openWork(workId) {
   clear(body);
 
   if (!w) {
-    body.appendChild(el('h2', 'd-title', 'Work #' + workId));
+    body.appendChild(el('h2', 'd-title', 'Aufgabe ' + kennung(workId)));
     body.appendChild(el('p', 'empty', 'Detail konnte nicht geladen werden.'));
     return;
   }
 
   const head = el('div', 'd-head');
-  head.appendChild(el('span', 'd-id', '#' + w.work_id));
+  head.appendChild(el('span', 'd-id', kennung(w.work_id)));
   if (w.priority_band) head.appendChild(el('span', 'band band-' + w.priority_band, w.priority_band + ' · ' + w.priority));
   head.appendChild(el('span', 'status status-' + w.status, w.status));
   if (w.verification_required) head.appendChild(el('span', 'chip', 'Prüfung durch zweiten Agenten nötig'));
@@ -823,8 +894,17 @@ function wireUi() {
 
   $('#drawer-close').addEventListener('click', closeDrawer);
   $('#overlay').addEventListener('click', (e) => { if (e.target === $('#overlay')) closeDrawer(); });
-  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') { closeDrawer(); schliesseKatalog(); schliesseNeuesProjekt(); } });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') { closeDrawer(); schliesseKatalog(); schliesseNeuesProjekt(); schliesseNeueAufgabe(); } });
   $('#err-close').addEventListener('click', hideError);
+
+  /* Neue Aufgabe */
+  $('#neue-aufgabe-btn').addEventListener('click', zeigeNeueAufgabe);
+  $('#na-anlegen').addEventListener('click', aufgabeAnlegen);
+  $('#na-abbrechen').addEventListener('click', schliesseNeueAufgabe);
+  $('#na-close').addEventListener('click', schliesseNeueAufgabe);
+  $('#neue-aufgabe').addEventListener('click', (e) => {
+    if (e.target === $('#neue-aufgabe')) schliesseNeueAufgabe();
+  });
 
   /* Projektwahl */
   $('#projekt-wahl').addEventListener('change', (e) => {

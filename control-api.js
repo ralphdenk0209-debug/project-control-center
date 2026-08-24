@@ -324,6 +324,7 @@ const ControlAPI = (function () {
     updateRule:        (code, aenderung)=> call('update_rule', Object.assign({ code: String(code) }, aenderung || {})),
     createRule:        (regel)          => call('create_rule', regel),
 
+    createWork:    (a)         => call('create_work', a),
     listProjects:  ()          => call('list_projects'),
     createProject: (p)         => call('create_project', p),
 
