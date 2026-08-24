@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="color-scheme" content="dark">
 <title>Project Control Center</title>
-<link rel="stylesheet" href="styles.css?v=2026-08-24-1545">
+<link rel="stylesheet" href="styles.css?v=2026-08-24-1900">
 </head>
 <body>
 
@@ -38,6 +38,7 @@
   <button class="tab" data-view="decisions">Entscheidungen <span class="tab-badge" id="tab-dec-badge"></span></button>
   <button class="tab" data-view="graph">Abhängigkeiten</button>
   <button class="tab" data-view="works">Work-Liste</button>
+  <button class="tab" data-view="rules">Regelwerk <span class="tab-badge" id="tab-rules-badge"></span></button>
 </nav>
 
 <main>
@@ -187,6 +188,30 @@
     </section>
   </section>
 
+  <!-- ============ REGELWERK ============ -->
+  <section id="view-rules" class="view" hidden>
+
+    <section class="panel board-hint">
+      <div>
+        <strong>Das Regelwerk dieses Projekts.</strong>
+        Jede Regel stammt aus einem Baustein oder wurde hier angelegt.
+      </div>
+      <div class="regel-zahlen" id="regel-zahlen"></div>
+      <div class="regel-werkzeuge">
+        <input type="search" id="regel-suche" placeholder="Suche in Regeln">
+        <label class="schalter"><input type="checkbox" id="regel-nur-abweichend"> nur Abweichungen</label>
+        <label class="schalter"><input type="checkbox" id="regel-auch-inaktive"> abgeschaltete zeigen</label>
+        <button class="btn-reset" id="regel-standard">Standard-Set anwenden</button>
+        <button class="btn-reset" id="regel-katalog-btn">Baukasten öffnen</button>
+      </div>
+      <div class="board-hint-warn" id="regel-nur-lesen" hidden>
+        Nur-Lesen: Diese Anmeldung darf Regeln nicht ändern.
+      </div>
+    </section>
+
+    <div id="regel-liste"></div>
+  </section>
+
   <!-- ============ WORK-LISTE ============ -->
   <section id="view-works" class="view" hidden>
     <section class="panel filters">
@@ -212,6 +237,19 @@
 
 </main>
 
+<!-- ============ BAUKASTEN ============ -->
+<div id="katalog" class="overlay" hidden>
+  <div class="drawer" role="dialog" aria-modal="true">
+    <button class="drawer-close" id="katalog-close" aria-label="Schließen">&times;</button>
+    <h2 class="d-title">Baukasten</h2>
+    <p class="d-goal">
+      Bausteine, aus denen sich Regelwerke zusammensetzen. Was hier zugeschaltet
+      wird, gilt anschließend in diesem Projekt.
+    </p>
+    <div id="katalog-liste"></div>
+  </div>
+</div>
+
 <!-- ============ WORK-DETAIL ============ -->
 <div id="overlay" class="overlay" hidden>
   <div class="drawer" role="dialog" aria-modal="true">
@@ -221,8 +259,8 @@
 </div>
 
 <!-- Datenquellen: erst die Fallback-Demo, dann die echte API, dann die Anzeige -->
-<script src="project-state.js?v=2026-08-24-1545"></script>
-<script src="control-api.js?v=2026-08-24-1545"></script>
-<script src="app.js?v=2026-08-24-1545"></script>
+<script src="project-state.js?v=2026-08-24-1900"></script>
+<script src="control-api.js?v=2026-08-24-1900"></script>
+<script src="app.js?v=2026-08-24-1900"></script>
 </body>
 </html>

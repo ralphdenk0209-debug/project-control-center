@@ -28,7 +28,7 @@
    weiter die alten Dateien aus — genau der Fehler, der bei Root Index
    tagelang einen wirkungslosen Deploy vorgetäuscht hat.
    Vor jedem Deploy hochzählen. */
-const APP_BUILD = "2026-08-24-1545";
+const APP_BUILD = "2026-08-24-1900";
 
 /* ---------- Zustand der Anzeige ---------- */
 
@@ -120,6 +120,7 @@ async function loadLive() {
   MODE = 'live';
   renderAll();
   $('#loading').hidden = true;
+  ladeRegeln();                 /* laeuft nebenher, blockiert die Anzeige nicht */
   console.info('[control-center] LIVE geladen:', WORKS.size, 'Work Items,',
     Object.keys(STATUS.agents || {}).length, 'Agenten,', LOCKS.length, 'Locks.');
   return true;
@@ -180,6 +181,7 @@ function loadDemo() {
   indexWorks();
   MODE = 'demo';
   renderAll();
+  ladeRegeln();
   console.info('[control-center] DEMO geladen (keine Projektwahrheit):', WORKS.size, 'Work Items.');
   return true;
 }
@@ -606,6 +608,217 @@ function renderDecisions() {
 }
 
 /* ============================================================
+   REGELWERK
+   Die Regeln des Projekts. Bearbeiten darf, wer den Scope hat —
+   das entscheidet der Server. Die Oberfläche versteckt nur die
+   Knöpfe, sie verhindert nichts (Abschnitt 41).
+   ============================================================ */
+
+let REGELN = [];
+let KATALOG = [];
+let REGELN_SCHREIBBAR = false;
+
+async function ladeRegeln() {
+  if (MODE !== 'live') {
+    REGELN = []; REGELN_SCHREIBBAR = false;
+    renderRegeln();
+    return;
+  }
+  const res = await ControlAPI.listRules();
+  if (!res.ok) {
+    REGELN = [];
+    /* "scope denied" heißt nicht Fehler, sondern: darf nicht lesen. */
+    if (res.error_code !== 'scope denied') showError(res, 'Regelwerk konnte nicht geladen werden');
+    renderRegeln();
+    return;
+  }
+  REGELN = Array.isArray(res.result) ? res.result : [];
+
+  /* Ob geschrieben werden darf, sagt der Server — nicht die Oberfläche.
+     Geprüft wird mit dem harmlosesten Aufruf, der Schreibrecht verlangt. */
+  const probe = await ControlAPI.applyStandardRules();
+  REGELN_SCHREIBBAR = probe.ok;
+  if (probe.ok && probe.result && probe.result.neu_uebernommen > 0) {
+    const nach = await ControlAPI.listRules();
+    if (nach.ok) REGELN = nach.result || [];
+  }
+  renderRegeln();
+}
+
+function renderRegeln() {
+  const wrap = $('#regel-liste'); clear(wrap);
+  $('#regel-nur-lesen').hidden = REGELN_SCHREIBBAR || MODE !== 'live';
+  ['#regel-standard', '#regel-katalog-btn'].forEach((s) => { $(s).hidden = !REGELN_SCHREIBBAR; });
+
+  const aktiv      = REGELN.filter((r) => r.active).length;
+  const abweichend = REGELN.filter((r) => r.abweichend).length;
+  const aus        = REGELN.length - aktiv;
+  $('#tab-rules-badge').textContent = abweichend ? String(abweichend) : '';
+
+  const z = $('#regel-zahlen'); clear(z);
+  if (MODE !== 'live') {
+    z.appendChild(el('span', 'empty', 'Regeln gibt es nur mit Anmeldung — sie stehen im Server, nicht in den Demo-Daten.'));
+    return;
+  }
+  [[aktiv, 'aktiv'], [aus, 'abgeschaltet'], [abweichend, 'vom Standard abweichend']].forEach(([n, t]) => {
+    const s = el('span', 'regel-zahl');
+    s.appendChild(el('strong', null, n));
+    s.appendChild(document.createTextNode(' ' + t));
+    z.appendChild(s);
+  });
+
+  const suche = $('#regel-suche').value.trim().toLowerCase();
+  const nurAb = $('#regel-nur-abweichend').checked;
+  const auchAus = $('#regel-auch-inaktive').checked;
+
+  const sichtbar = REGELN.filter((r) => {
+    if (!auchAus && !r.active) return false;
+    if (nurAb && !r.abweichend) return false;
+    if (suche && !((r.code + ' ' + r.title + ' ' + (r.description || '')).toLowerCase().includes(suche))) return false;
+    return true;
+  });
+
+  if (!sichtbar.length) {
+    const p = el('div', 'panel');
+    p.appendChild(el('div', 'empty', REGELN.length ? 'Keine Regel passt zu diesen Filtern.' : 'Noch kein Regelwerk. Standard-Set anwenden.'));
+    wrap.appendChild(p);
+    return;
+  }
+
+  /* Nach Gruppen bündeln — 30 Regeln am Stück liest niemand. */
+  const gruppen = new Map();
+  sichtbar.forEach((r) => {
+    const g = r.gruppe || 'Ohne Gruppe';
+    if (!gruppen.has(g)) gruppen.set(g, []);
+    gruppen.get(g).push(r);
+  });
+
+  gruppen.forEach((regeln, gruppe) => {
+    const kasten = el('section', 'panel');
+    const h = el('h2', null, gruppe);
+    h.appendChild(el('span', 'count', regeln.length));
+    kasten.appendChild(h);
+    regeln.forEach((r) => kasten.appendChild(buildRegel(r)));
+    wrap.appendChild(kasten);
+  });
+}
+
+function buildRegel(r) {
+  const box = el('div', 'regel' + (r.active ? '' : ' ist-aus') + (r.abweichend ? ' ist-abweichend' : ''));
+
+  const kopf = el('div', 'regel-kopf');
+  kopf.appendChild(el('span', 'regel-code', r.code));
+  kopf.appendChild(el('span', 'schwere schwere-' + r.severity, r.severity));
+  if (r.abweichend) kopf.appendChild(el('span', 'regel-flag', 'ANGEPASST'));
+  if (!r.active)   kopf.appendChild(el('span', 'regel-flag regel-flag-aus', 'ABGESCHALTET'));
+  box.appendChild(kopf);
+
+  box.appendChild(el('div', 'regel-titel', r.title));
+  if (r.description) box.appendChild(el('div', 'regel-text', r.description));
+  if (r.begruendung) box.appendChild(el('div', 'regel-warum', 'Warum: ' + r.begruendung));
+
+  if (!REGELN_SCHREIBBAR) return box;
+
+  const werkzeuge = el('div', 'regel-aktionen');
+
+  const schwere = el('select');
+  schwere.setAttribute('aria-label', 'Schweregrad von ' + r.code);
+  ['muss', 'soll', 'hinweis'].forEach((s) => {
+    const o = el('option', null, s); o.value = s; schwere.appendChild(o);
+  });
+  schwere.value = r.severity;
+  schwere.addEventListener('change', () => regelAendern(r.code, { severity: schwere.value }));
+  werkzeuge.appendChild(schwere);
+
+  const anAus = el('button', 'btn-reset', r.active ? 'Abschalten' : 'Einschalten');
+  anAus.addEventListener('click', () => regelAendern(r.code, { active: !r.active }));
+  werkzeuge.appendChild(anAus);
+
+  const bearbeiten = el('button', 'btn-reset', 'Wortlaut ändern');
+  bearbeiten.addEventListener('click', () => {
+    if (box.querySelector('.regel-editor')) return;
+    const ed = el('div', 'regel-editor');
+    const ta = el('textarea');
+    ta.value = r.description || '';
+    ta.setAttribute('aria-label', 'Regeltext von ' + r.code);
+    ed.appendChild(ta);
+    const speichern = el('button', 'btn-primary', 'Speichern');
+    speichern.addEventListener('click', () => regelAendern(r.code, { description: ta.value }));
+    const abbrechen = el('button', 'btn-reset', 'Abbrechen');
+    abbrechen.addEventListener('click', () => ed.remove());
+    const leiste = el('div', 'regel-editor-fuss');
+    leiste.appendChild(speichern); leiste.appendChild(abbrechen);
+    ed.appendChild(leiste);
+    box.appendChild(ed);
+    ta.focus();
+  });
+  werkzeuge.appendChild(bearbeiten);
+
+  box.appendChild(werkzeuge);
+  return box;
+}
+
+async function regelAendern(code, aenderung) {
+  hideError();
+  const res = await ControlAPI.updateRule(code, aenderung);
+  if (!res.ok) { showError(res, 'Regel konnte nicht geändert werden'); return; }
+  const neu = await ControlAPI.listRules();
+  if (neu.ok) REGELN = neu.result || [];
+  renderRegeln();
+  console.info('[control-center] Regel geändert:', code, aenderung);
+}
+
+async function zeigeKatalog() {
+  const res = await ControlAPI.listRuleTemplates();
+  if (!res.ok) { showError(res, 'Baukasten konnte nicht geladen werden'); return; }
+  KATALOG = Array.isArray(res.result) ? res.result : [];
+
+  const wrap = $('#katalog-liste'); clear(wrap);
+  const vorhanden = new Set(REGELN.map((r) => r.code));
+
+  const gruppen = new Map();
+  KATALOG.forEach((t) => {
+    if (!gruppen.has(t.gruppe)) gruppen.set(t.gruppe, []);
+    gruppen.get(t.gruppe).push(t);
+  });
+
+  gruppen.forEach((bausteine, gruppe) => {
+    const s = section(gruppe);
+    bausteine.forEach((t) => {
+      const zeile = el('div', 'baustein');
+      const kopf = el('div', 'regel-kopf');
+      kopf.appendChild(el('span', 'regel-code', t.code));
+      kopf.appendChild(el('span', 'schwere schwere-' + t.severity, t.severity));
+      if (!t.im_standard) kopf.appendChild(el('span', 'regel-flag', 'ZUSATZ'));
+      zeile.appendChild(kopf);
+      zeile.appendChild(el('div', 'regel-titel', t.title));
+      zeile.appendChild(el('div', 'regel-text', t.description));
+
+      if (vorhanden.has(t.code)) {
+        zeile.appendChild(el('div', 'baustein-drin', 'Bereits im Regelwerk'));
+      } else {
+        const knopf = el('button', 'btn-reset', 'Zuschalten');
+        knopf.addEventListener('click', async () => {
+          knopf.disabled = true;
+          const r = await ControlAPI.addRuleFromTemplate(t.code);
+          if (!r.ok) { showError(r, 'Baustein konnte nicht zugeschaltet werden'); knopf.disabled = false; return; }
+          const neu = await ControlAPI.listRules();
+          if (neu.ok) REGELN = neu.result || [];
+          renderRegeln();
+          zeigeKatalog();
+        });
+        zeile.appendChild(knopf);
+      }
+      s.appendChild(zeile);
+    });
+    wrap.appendChild(s);
+  });
+
+  $('#katalog').hidden = false;
+  document.body.style.overflow = 'hidden';
+}
+
+/* ============================================================
    ABHÄNGIGKEITEN
    ============================================================ */
 
@@ -868,6 +1081,11 @@ function chips(title, values, leerText) {
   return s;
 }
 
+function schliesseKatalog() {
+  $('#katalog').hidden = true;
+  document.body.style.overflow = '';
+}
+
 function closeDrawer() {
   $('#overlay').hidden = true;
   document.body.style.overflow = '';
@@ -877,7 +1095,7 @@ function closeDrawer() {
    Ansichten und Bedienung
    ============================================================ */
 
-const VIEWS = ['token', 'dashboard', 'board', 'decisions', 'graph', 'works'];
+const VIEWS = ['token', 'dashboard', 'board', 'decisions', 'graph', 'works', 'rules'];
 
 function showView(name) {
   VIEWS.forEach((v) => { const n = $('#view-' + v); if (n) n.hidden = v !== name; });
@@ -902,9 +1120,24 @@ function wireUi() {
 
   $('#drawer-close').addEventListener('click', closeDrawer);
   $('#overlay').addEventListener('click', (e) => { if (e.target === $('#overlay')) closeDrawer(); });
-  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeDrawer(); });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') { closeDrawer(); schliesseKatalog(); } });
 
   $('#err-close').addEventListener('click', hideError);
+
+  /* Regelwerk */
+  ['#regel-suche', '#regel-nur-abweichend', '#regel-auch-inaktive'].forEach((sel) => {
+    $(sel).addEventListener('input', renderRegeln);
+  });
+  $('#regel-standard').addEventListener('click', async () => {
+    const res = await ControlAPI.applyStandardRules();
+    if (!res.ok) { showError(res, 'Standard-Set konnte nicht angewendet werden'); return; }
+    const neu = await ControlAPI.listRules();
+    if (neu.ok) REGELN = neu.result || [];
+    renderRegeln();
+  });
+  $('#regel-katalog-btn').addEventListener('click', zeigeKatalog);
+  $('#katalog-close').addEventListener('click', schliesseKatalog);
+  $('#katalog').addEventListener('click', (e) => { if (e.target === $('#katalog')) schliesseKatalog(); });
   $('#reload-btn').addEventListener('click', () => { if (MODE === 'live') loadLive(); else loadDemo(); });
 
   $('#token-btn').addEventListener('click', () => {

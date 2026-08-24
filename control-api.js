@@ -283,6 +283,15 @@ const ControlAPI = (function () {
     resolveDecision: (id, wahl, warum) =>
       call('resolve_decision', { decision_id: Number(id), resolution: String(wahl), rationale: String(warum || '') }),
 
+    /* Regelwerk. Lesen darf jeder, ändern nur wer den Scope hat —
+       das entscheidet der Server, nicht diese Datei. */
+    listRules:         ()               => call('list_rules'),
+    listRuleTemplates: ()               => call('list_rule_templates'),
+    applyStandardRules:()               => call('apply_standard_rules'),
+    addRuleFromTemplate:(code)          => call('add_rule_from_template', { code: String(code) }),
+    updateRule:        (code, aenderung)=> call('update_rule', Object.assign({ code: String(code) }, aenderung || {})),
+    createRule:        (regel)          => call('create_rule', regel),
+
     raw: call
   };
 })();

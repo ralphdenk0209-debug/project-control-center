@@ -374,6 +374,57 @@ main{padding:20px 24px 60px;max-width:1400px;margin:0 auto}
 .dec-result{color:var(--ok);font-size:14px}
 .dec-warn{color:var(--warn);font-size:13px;width:100%}
 
+/* ---------- Regelwerk ---------- */
+.regel-zahlen{display:flex;gap:16px;flex-wrap:wrap;font-size:13px;color:var(--text-dim);width:100%}
+.regel-zahl strong{color:var(--text);font-family:var(--mono);margin-right:4px}
+.regel-werkzeuge{display:flex;gap:9px;flex-wrap:wrap;align-items:center;width:100%;margin-top:4px}
+.regel-werkzeuge input[type=search]{
+  background:var(--panel-2);border:1px solid var(--line);color:var(--text);
+  border-radius:6px;padding:7px 10px;font:inherit;font-size:13px;min-width:190px;
+}
+.regel-werkzeuge input[type=search]:focus{outline:none;border-color:var(--accent)}
+.schalter{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text-dim);cursor:pointer}
+
+.regel{
+  background:var(--panel-2);border:1px solid var(--line);border-left-width:3px;
+  border-left-color:var(--line);border-radius:6px;padding:12px 14px;margin-bottom:9px;
+}
+.regel.ist-abweichend{border-left-color:var(--warn)}
+.regel.ist-aus{opacity:.5}
+.regel-kopf{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:5px}
+.regel-code{font-family:var(--mono);font-size:11px;color:var(--text-dim)}
+.regel-titel{font-size:15px;font-weight:600;margin-bottom:4px}
+.regel-text{font-size:14px;line-height:1.5}
+.regel-warum{font-size:12px;color:var(--text-dim);margin-top:6px;font-style:italic}
+.regel-flag{
+  font-family:var(--mono);font-size:10px;letter-spacing:.06em;
+  background:rgba(227,179,65,.15);color:var(--warn);border-radius:4px;padding:2px 6px;
+}
+.regel-flag-aus{background:var(--panel);color:var(--text-dim)}
+
+.schwere{font-family:var(--mono);font-size:10px;letter-spacing:.06em;border-radius:4px;padding:2px 7px}
+.schwere-muss{background:rgba(240,97,109,.15);color:var(--bad)}
+.schwere-soll{background:rgba(227,179,65,.15);color:var(--warn)}
+.schwere-hinweis{background:var(--panel);color:var(--text-dim)}
+
+.regel-aktionen{display:flex;gap:8px;flex-wrap:wrap;margin-top:11px}
+.regel-aktionen select{
+  background:var(--panel);border:1px solid var(--line);color:var(--text);
+  border-radius:6px;padding:6px 9px;font:inherit;font-size:13px;
+}
+.regel-aktionen select:focus{outline:none;border-color:var(--accent)}
+.regel-editor{margin-top:11px}
+.regel-editor textarea{
+  width:100%;background:var(--panel);border:1px solid var(--accent);color:var(--text);
+  border-radius:6px;padding:10px 12px;font:inherit;font-size:14px;min-height:80px;resize:vertical;
+}
+.regel-editor textarea:focus{outline:none}
+.regel-editor-fuss{display:flex;gap:8px;margin-top:8px}
+
+.baustein{background:var(--panel-2);border:1px solid var(--line);border-radius:6px;padding:11px 13px;margin-bottom:8px}
+.baustein .btn-reset{margin-top:9px}
+.baustein-drin{margin-top:9px;font-size:12px;color:var(--ok)}
+
 /* ---------- Work Graph ---------- */
 .legend{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--text-dim)}
 .legend span{display:flex;align-items:center;gap:5px}
