@@ -25,7 +25,7 @@
    damit die ?v=-Angaben in index.html sowie build.txt nach. Ohne sie liefert
    der Browser nach einem Deploy weiter die alten Dateien aus.
    Vor jedem Deploy hochzählen. */
-const APP_BUILD = "2026-08-24-2130";
+const APP_BUILD = "2026-08-24-2200";
 
 /* ---------- Zustand der Anzeige ---------- */
 
@@ -233,10 +233,6 @@ function renderDashboard() {
   renderNow();
   renderNext();
   renderBlocked();
-  renderEntscheidungen();
-  renderAgents();
-  renderLocks();
-  renderBuild();
 }
 
 function num(v) { const n = Number(v); return isFinite(n) ? n : null; }
@@ -287,144 +283,6 @@ function renderBlocked() {
   });
 }
 
-/* Entscheidungen stehen im Dashboard und werden dort aufgeklappt und
-   getroffen. Eine eigene Ansicht dafür wäre ein zweiter Ort für dieselbe
-   Sache. */
-function renderEntscheidungen() {
-  const ul = $('#decision-list'); clear(ul);
-  const rows = STATUS.decisions || [];
-  $('#decision-count').textContent = rows.length;
-  if (!rows.length) { ul.appendChild(emptyLi('Keine offene Entscheidung.')); return; }
-
-  rows.forEach((d) => {
-    const li = el('li');
-
-    const kopf = el('button', 'item');
-    kopf.type = 'button';
-    kopf.appendChild(el('span', 'item-id', 'DEC-' + d.decision_id));
-    kopf.appendChild(el('span', 'item-title', d.title));
-    kopf.appendChild(el('span', 'item-meta', 'öffnen'));
-    li.appendChild(kopf);
-
-    const feld = el('div', 'dec-inline');
-    feld.hidden = true;
-
-    if (d.question) feld.appendChild(el('p', 'dec-frage', d.question));
-
-    let gewaehlt = null;
-    const knoepfe = [];
-    (d.options || []).forEach((o) => {
-      const key   = (o && typeof o === 'object') ? String(o.key || '') : '';
-      const label = (o && typeof o === 'object') ? String(o.label || '') : String(o);
-      const b = el('button', 'opt');
-      b.type = 'button';
-      b.dataset.option = key;
-      b.appendChild(el('span', 'opt-mark', '○'));
-      b.appendChild(el('span', 'opt-text', key ? key + ' — ' + label : label));
-      if (d.recommendation && key && String(d.recommendation).trim().startsWith(key)) {
-        b.appendChild(el('span', 'opt-rec', 'EMPFOHLEN'));
-      }
-      if (MODE === 'live' && key) {
-        b.addEventListener('click', () => {
-          gewaehlt = key;
-          knoepfe.forEach((x) => {
-            const an = x.dataset.option === key;
-            x.classList.toggle('is-chosen', an);
-            x.querySelector('.opt-mark').textContent = an ? '●' : '○';
-          });
-        });
-      } else { b.disabled = true; }
-      knoepfe.push(b);
-      feld.appendChild(b);
-    });
-
-    if (d.recommendation) feld.appendChild(el('div', 'dec-empfehlung', 'Empfehlung: ' + d.recommendation));
-
-    if (MODE === 'live') {
-      const ta = el('textarea', 'dec-inline-why');
-      ta.placeholder = 'Begründung — sie wird mitgespeichert und später gelesen.';
-      feld.appendChild(ta);
-
-      const senden = el('button', 'btn-primary', 'Entscheidung festhalten');
-      senden.addEventListener('click', async () => {
-        if (!gewaehlt) {
-          showError({ message: 'Bitte zuerst eine Option wählen.', error_code: 'keine_auswahl' }, 'Noch nichts gewählt');
-          return;
-        }
-        senden.disabled = true;
-        const res = await ControlAPI.resolveDecision(d.decision_id, gewaehlt, ta.value);
-        senden.disabled = false;
-        if (!res.ok) { showError(res, 'Entscheidung konnte nicht gespeichert werden'); return; }
-        await loadLive();
-      });
-      feld.appendChild(senden);
-    } else {
-      feld.appendChild(el('div', 'empty', 'Entscheiden geht nur mit Anmeldung.'));
-    }
-
-    kopf.addEventListener('click', () => { feld.hidden = !feld.hidden; });
-    li.appendChild(feld);
-    ul.appendChild(li);
-  });
-}
-
-function renderAgents() {
-  const ul = $('#agent-list'); clear(ul);
-  const agents = STATUS.agents || {};
-  const slugs = Object.keys(agents);
-  if (!slugs.length) { ul.appendChild(emptyLi('Keine Agenten.')); return; }
-  slugs.forEach((slug) => {
-    const a = agents[slug];
-    const li = el('li');
-    li.appendChild(el('span', 'agent-name', a.name || slug));
-    li.appendChild(el('span', 'agent-state st-' + a.state, a.state));
-    if (a.work_id != null) {
-      const w = WORKS.get(String(a.work_id));
-      li.appendChild(el('span', 'agent-work', '#' + a.work_id + (w ? ' · ' + w.title : '')));
-    }
-    ul.appendChild(li);
-  });
-}
-
-function renderLocks() {
-  const ul = $('#lock-list'); clear(ul);
-  $('#lock-count').textContent = LOCKS.length;
-  if (!LOCKS.length) { ul.appendChild(emptyLi('Keine aktiven Locks.')); return; }
-  LOCKS.forEach((l) => {
-    const li = el('li');
-    li.appendChild(el('div', 'lock-res', l.resource_key || '–'));
-    li.appendChild(el('div', 'lock-meta',
-      (l.agent_name || l.agent || '?') + ' · #' + l.work_id + ' · ' + (l.resource_type || '?') +
-      ' · läuft ab ' + shortTime(l.expires_at)));
-    ul.appendChild(li);
-  });
-}
-
-function renderBuild() {
-  const grid = $('#build-grid'); clear(grid);
-  const builds = STATUS.builds || {};
-  const envs = Object.keys(builds);
-  const drift = $('#build-drift');
-
-  if (!envs.length) {
-    grid.appendChild(el('div', 'empty', 'Noch kein Build-Stand gemeldet.'));
-    drift.className = 'drift';
-    drift.textContent = 'Ohne gemeldeten Build lässt sich kein Drift feststellen. Es wird nichts vermutet.';
-    return;
-  }
-  envs.forEach((env) => {
-    const b = builds[env] || {};
-    const box = el('div');
-    box.appendChild(el('span', 'build-label', env));
-    box.appendChild(el('span', 'build-val', b.version != null ? b.version : '–'));
-    if (b.measured_at) box.appendChild(el('span', 'build-when', shortTime(b.measured_at)));
-    grid.appendChild(box);
-  });
-  /* Der Server meldet keinen Drift-Wert. Die UI leitet ihn NICHT ab (ARCH-01). */
-  drift.className = 'drift';
-  drift.textContent = 'Drift wird vom Server nicht gemeldet. Die Oberfläche leitet ihn nicht selbst ab.';
-}
-
 /* ============================================================
    ZUSTÄNDIGKEIT — steht im Dashboard
    ============================================================ */
@@ -446,7 +304,6 @@ function buildColumn(slug, agent) {
 
   const head = el('div', 'col-head');
   head.appendChild(el('span', 'col-name', slug === UNASSIGNED ? 'Nicht zugewiesen' : (agent && agent.name) || slug));
-  if (agent) head.appendChild(el('span', 'agent-state st-' + agent.state, agent.state));
 
   const cards = [...WORKS.values()]
     .filter((w) => (w.owner || UNASSIGNED) === slug)

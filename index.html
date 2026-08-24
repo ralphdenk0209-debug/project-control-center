@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="color-scheme" content="dark">
 <title>Project Control Center</title>
-<link rel="stylesheet" href="styles.css?v=2026-08-24-2130">
+<link rel="stylesheet" href="styles.css?v=2026-08-24-2200">
 </head>
 <body>
 
@@ -117,25 +117,13 @@
         <ol class="list list-ordered" id="next-list"></ol>
       </section>
 
-      <section class="panel">
-        <h2>Wartet auf mich <span class="count count-warn" id="decision-count">0</span></h2>
-        <ul class="list" id="decision-list"></ul>
-      </section>
 
       <section class="panel">
         <h2>Blockiert <span class="count" id="blocked-count">0</span></h2>
         <ul class="list" id="blocked-list"></ul>
       </section>
 
-      <section class="panel">
-        <h2>Agenten</h2>
-        <ul class="list list-agents" id="agent-list"></ul>
-      </section>
 
-      <section class="panel">
-        <h2>Aktive Locks <span class="count" id="lock-count">0</span></h2>
-        <ul class="list list-locks" id="lock-list"></ul>
-      </section>
 
 
       <section class="panel panel-breit">
@@ -144,11 +132,6 @@
         <div class="board" id="board"></div>
       </section>
 
-      <section class="panel panel-build" id="panel-build">
-        <h2>Build</h2>
-        <div class="build-grid" id="build-grid"></div>
-        <div class="drift" id="build-drift"></div>
-      </section>
 
     </div>
   </section>
@@ -205,8 +188,8 @@
 </div>
 
 <!-- Datenquellen: erst die Fallback-Demo, dann die echte API, dann die Anzeige -->
-<script src="project-state.js?v=2026-08-24-2130"></script>
-<script src="control-api.js?v=2026-08-24-2130"></script>
-<script src="app.js?v=2026-08-24-2130"></script>
+<script src="project-state.js?v=2026-08-24-2200"></script>
+<script src="control-api.js?v=2026-08-24-2200"></script>
+<script src="app.js?v=2026-08-24-2200"></script>
 </body>
 </html>
