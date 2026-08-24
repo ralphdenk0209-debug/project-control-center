@@ -28,7 +28,7 @@
    weiter die alten Dateien aus — genau der Fehler, der bei Root Index
    tagelang einen wirkungslosen Deploy vorgetäuscht hat.
    Vor jedem Deploy hochzählen. */
-const APP_BUILD = "2026-08-24-1900";
+const APP_BUILD = "2026-08-24-2015";
 
 /* ---------- Zustand der Anzeige ---------- */
 
@@ -634,14 +634,10 @@ async function ladeRegeln() {
   }
   REGELN = Array.isArray(res.result) ? res.result : [];
 
-  /* Ob geschrieben werden darf, sagt der Server — nicht die Oberfläche.
-     Geprüft wird mit dem harmlosesten Aufruf, der Schreibrecht verlangt. */
-  const probe = await ControlAPI.applyStandardRules();
-  REGELN_SCHREIBBAR = probe.ok;
-  if (probe.ok && probe.result && probe.result.neu_uebernommen > 0) {
-    const nach = await ControlAPI.listRules();
-    if (nach.ok) REGELN = nach.result || [];
-  }
+  /* Was erlaubt ist, sagt der Server in jeder Antwort mit. Vorher wurde
+     dafür testweise geschrieben — ein Leseaufruf, der bei jedem Laden das
+     Standard-Set anwandte. Jetzt wird nur gefragt. */
+  REGELN_SCHREIBBAR = ControlAPI.darf('update_rule');
   renderRegeln();
 }
 

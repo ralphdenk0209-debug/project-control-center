@@ -49,6 +49,12 @@ const ControlAPI = (function () {
 
   let SITZUNG = null;          /* Arbeitsspeicher — die verlaessliche Ablage */
 
+  /* Was diese Anmeldung darf. Kommt vom Server bei jeder Antwort mit.
+     Die Oberflaeche blendet danach Knoepfe ein oder aus — verhindern tut
+     es weiterhin der Server. Vorher musste die Oberflaeche probeweise
+     SCHREIBEN, um das herauszufinden; ein Leseaufruf mit Nebenwirkung. */
+  let SCOPES = [];
+
   function speicherVerfuegbar() {
     try {
       const probe = '__pcc_probe__';
@@ -77,6 +83,7 @@ const ControlAPI = (function () {
 
   function sitzungLoeschen() {
     SITZUNG = null;
+    SCOPES = [];
     try { localStorage.removeItem(SPEICHER); } catch (e) { /* egal */ }
   }
 
@@ -206,10 +213,12 @@ const ControlAPI = (function () {
       if (await erneuern()) return call(action, payload, true);
     }
 
+    if (body && Array.isArray(body.scopes)) SCOPES = body.scopes;
+
     if (!res.ok || !body || body.ok !== true) {
       const code = (body && (body.error || body.error_code)) || ('http_' + res.status);
       return { ok: false, error_code: String(code), message: erklaeren(code, res.status, body),
-               http: res.status, raw: body };
+               http: res.status, raw: body, scopes: SCOPES };
     }
 
     /* Manche RPCs melden ihre eigene Ablehnung im Ergebnis. */
@@ -220,7 +229,8 @@ const ControlAPI = (function () {
                http: res.status, raw: r };
     }
 
-    return { ok: true, result: r, project: body.project, agent: body.agent, via: body.via };
+    return { ok: true, result: r, project: body.project, agent: body.agent,
+             via: body.via, scopes: SCOPES };
   }
 
   /* Uebersetzt Servercodes in Saetze. Reine Textzuordnung — keine Entscheidung.
@@ -269,6 +279,11 @@ const ControlAPI = (function () {
     endpoint:   ENDPOINT,
     angemeldet: angemeldet,
     wer:        wer,
+
+    /* Darf diese Anmeldung eine bestimmte Aktion? Reine Auskunft, keine
+       Entscheidung: der Server lehnt unabhaengig davon ab. */
+    darf:       (aktion) => SCOPES.indexOf(aktion) !== -1,
+    scopes:     () => SCOPES.slice(),
 
     anmelden:   anmelden,
     abmelden:   sitzungLoeschen,
