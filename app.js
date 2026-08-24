@@ -25,7 +25,7 @@
    damit die ?v=-Angaben in index.html sowie build.txt nach. Ohne sie liefert
    der Browser nach einem Deploy weiter die alten Dateien aus.
    Vor jedem Deploy hochzählen. */
-const APP_BUILD = "2026-08-24-2245";
+const APP_BUILD = "2026-08-24-2330";
 
 /* ---------- Zustand der Anzeige ---------- */
 
@@ -35,6 +35,7 @@ let LOCKS = [];           /* Antwort von pcc_list_locks */
 let WORKS = new Map();    /* work_id -> Kurzeintrag aus status */
 let DETAILS = new Map();  /* work_id -> Antwort von pcc_get_work */
 let AGENT_ORDER = [];     /* Reihenfolge der Agentenspalten */
+let NUR_LESEN = false;    /* Projekt mit externer Quelle: nichts aenderbar */
 
 const UNASSIGNED = '__none__';
 
@@ -104,6 +105,9 @@ async function loadLive() {
     return false;
   }
   STATUS = st.result;
+  /* Sagt der Server, dass dieses Projekt nur gelesen wird, wird hier nichts
+     angeboten, was ohnehin abgelehnt wuerde. */
+  NUR_LESEN = STATUS.nur_lesend === true;
 
   const lk = await ControlAPI.listLocks();
   LOCKS = lk.ok && Array.isArray(lk.result) ? lk.result : [];
@@ -201,8 +205,8 @@ async function ensureDetail(workId) {
 }
 
 function renderAll() {
-  $('#src-badge').textContent = MODE === 'live' ? 'LIVE' : 'DEMO-DATEN';
-  $('#src-badge').className = 'src ' + (MODE === 'live' ? 'src-live' : 'src-demo');
+  $('#src-badge').textContent = MODE !== 'live' ? 'DEMO-DATEN' : (NUR_LESEN ? 'LIVE · NUR LESEN' : 'LIVE');
+  $('#src-badge').className = 'src ' + (MODE !== 'live' ? 'src-demo' : (NUR_LESEN ? 'src-lesen' : 'src-live'));
   document.title = (MODE === 'live' ? '' : 'DEMO · ') + 'Project Control Center';
   renderDashboard();
   renderBoard();
@@ -294,8 +298,9 @@ function renderBoard() {
   AGENT_ORDER.forEach((slug) => board.appendChild(buildColumn(slug, agents[slug])));
   board.appendChild(buildColumn(UNASSIGNED, null));
 
-  $('#board-mode').textContent = MODE === 'live'
-    ? 'Karte auf eine andere Spalte ziehen, oder antippen und im Detail umstellen. Der Server entscheidet, ob es erlaubt ist.'
+  $('#board-mode').textContent =
+    NUR_LESEN ? 'Nur-Lesen: Dieses Projekt wird live aus einer fremden Quelle gelesen. Änderungen gehören dorthin, nicht hierher.'
+    : MODE === 'live' ? 'Karte auf eine andere Spalte ziehen, oder antippen und im Detail umstellen. Der Server entscheidet, ob es erlaubt ist.'
     : 'Demo-Ansicht: Verschieben ist abgeschaltet, weil kein Server da ist, der es entscheiden könnte.';
 }
 
@@ -318,7 +323,7 @@ function buildColumn(slug, agent) {
     cards.forEach((w) => col.appendChild(buildCard(w)));
   }
 
-  if (MODE === 'live') {
+  if (MODE === 'live' && !NUR_LESEN) {
     col.addEventListener('dragover', (e) => { e.preventDefault(); col.classList.add('is-over'); });
     col.addEventListener('dragleave', () => col.classList.remove('is-over'));
     col.addEventListener('drop', (e) => {
@@ -335,7 +340,7 @@ function buildCard(w) {
   const band = bandOf(w.work_id);
   const card = el('div', 'card' + (band ? ' band-edge-' + band : ''));
   card.dataset.workId = w.work_id;
-  card.draggable = MODE === 'live';
+  card.draggable = MODE === 'live' && !NUR_LESEN;
 
   const top = el('div', 'card-top');
   top.appendChild(el('span', 'card-id', '#' + w.work_id));
@@ -354,7 +359,7 @@ function buildCard(w) {
   const lock = LOCKS.find((l) => String(l.work_id) === String(w.work_id));
   if (lock) card.appendChild(el('div', 'card-lock', 'Lock: ' + (lock.agent_name || lock.agent)));
 
-  if (MODE === 'live') {
+  if (MODE === 'live' && !NUR_LESEN) {
     card.addEventListener('dragstart', (e) => {
       e.dataTransfer.setData('text/plain', String(w.work_id));
       e.dataTransfer.effectAllowed = 'move';
@@ -711,14 +716,15 @@ async function openWork(workId) {
   const on = el('option', null, 'nicht zugewiesen'); on.value = UNASSIGNED; sel.appendChild(on);
   AGENT_ORDER.forEach((slug) => { const o = el('option', null, agentName(slug)); o.value = slug; sel.appendChild(o); });
   sel.value = w.owner || UNASSIGNED;
-  sel.disabled = MODE !== 'live';
+  sel.disabled = MODE !== 'live' || NUR_LESEN;
   sel.addEventListener('change', async () => {
     const ziel = sel.value;
     closeDrawer();
     await requestAssign(w.work_id, ziel);
   });
   pick.appendChild(sel);
-  if (MODE !== 'live') pick.appendChild(el('span', 'owner-warn', 'In der Demo-Ansicht nicht änderbar.'));
+  if (NUR_LESEN) pick.appendChild(el('span', 'owner-warn', 'Nur-Lesen — dieses Projekt wird aus einer fremden Quelle gelesen.'));
+  else if (MODE !== 'live') pick.appendChild(el('span', 'owner-warn', 'In der Demo-Ansicht nicht änderbar.'));
   own.appendChild(pick);
   body.appendChild(own);
 

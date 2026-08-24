@@ -625,3 +625,5 @@ code{font-family:var(--mono);font-size:.92em;background:var(--panel-2);padding:1
   .projekt-wahl{max-width:140px;font-size:12px}
   .dialog{padding:20px 16px}
 }
+
+.src-lesen{background:rgba(76,141,255,.15);color:var(--accent);border-color:rgba(76,141,255,.4)}
