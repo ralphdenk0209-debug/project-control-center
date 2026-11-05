@@ -19,5 +19,12 @@
     "shutdown",
     "git push"
   ],
+  "werkzeuge_ohne_nachfrage": [],
+  "email": {
+    "server": "imap.mail.yahoo.com",
+    "port": 993,
+    "benutzer": "",
+    "passwort_umgebungsvariable": "AGENT_EMAIL_PASSWORT"
+  },
   "extra_argumente": []
 }

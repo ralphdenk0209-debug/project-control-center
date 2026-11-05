@@ -1,6 +1,6 @@
 # Agent mit Copilot
 
-Ein kleiner Agent, der deine **Wissensdatenbank** nutzt und **Befehle ausführt**.
+Ein kleiner Agent, der deine **Wissensdatenbank** nutzt, **Werkzeuge** wie E-Mail benutzt und **Befehle ausführt**.
 Er läuft mit **jedem Copilot**.
 
 ## Zwei Modi
@@ -40,12 +40,40 @@ Falls die Zwischenablage nicht geht: Der Auftrag steht auch in `copilot-auftrag.
 - Lege `.md`- oder `.txt`-Dateien in den Ordner `wissen/`.
 - Sie werden bei **jeder Frage neu** gelesen.
 
+## E-Mails durchsuchen und zusammenfassen
+
+Beispiele: *„Fasse meine Mails der letzten Woche zusammen“*, *„Suche Rechnungen von den Stadtwerken“*.
+
+**Einrichten (einmalig):**
+1. Beim Mail-Anbieter ein **App-Passwort** erstellen. Bei Yahoo: Kontosicherheit → App-Passwort erstellen.
+2. In `config.json` bei `email` den `server` und den `benutzer` (deine Mail-Adresse) eintragen.
+3. Das Passwort fragt der Agent beim ersten Zugriff ab. Gespeichert wird es nicht.
+   Alternativ: als Umgebungsvariable `AGENT_EMAIL_PASSWORT` setzen.
+
+| Anbieter | Server |
+|---|---|
+| Yahoo | `imap.mail.yahoo.com` |
+| Gmail | `imap.gmail.com` |
+| GMX | `imap.gmx.net` |
+| web.de | `imap.web.de` |
+| T-Online | `secureimap.t-online.de` |
+
+**Gut zu wissen:**
+- Der Agent liest nur. Er löscht und verschiebt nichts und markiert nichts als gelesen.
+- Vor jedem Zugriff fragt er nach. Ohne Nachfrage geht es, wenn du den Namen in `werkzeuge_ohne_nachfrage` einträgst, z. B. `["mails_suchen"]`.
+- Die gefundenen Mails gehen zum Zusammenfassen an Copilot, also an Microsoft oder GitHub.
+- Outlook.com und Microsoft 365 gehen so **nicht**, weil Microsoft dort die Anmeldung per Passwort gesperrt hat.
+
+**Werkzeuge:** `mails_suchen`, `mail_lesen`, `mail_ordner`. Neue Werkzeuge kommen in `werkzeuge.py`, danach die Datei neu bauen.
+
 ## Einstellungen (`config.json`)
 
 | Feld | Bedeutung |
 |---|---|
 | `modus` | `auto`, `github` oder `manuell` |
 | `copilot_url` | Seite, die im manuellen Modus geöffnet wird (leer = keine) |
+| `email` | Mail-Zugang: server, port, benutzer |
+| `werkzeuge_ohne_nachfrage` | Werkzeuge, die ohne Rückfrage laufen dürfen |
 | `verbotene_befehle` | Manuell: Befehle mit diesen Wörtern werden nie ausgeführt |
 | `erlaubte_tools` | GitHub: Was Copilot ohne Nachfrage darf, z. B. `"shell(git)"` |
 | `verbotene_tools` | GitHub: Was immer verboten ist |

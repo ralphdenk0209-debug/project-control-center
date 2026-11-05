@@ -1,4 +1,4 @@
-"""Standalone-Agent mit Wissensdatenbank, der Befehle ausfuehren kann.
+"""Standalone-Agent mit Wissensdatenbank, Werkzeugen (z. B. E-Mails) und Befehlen.
 
 Zwei Modi (config.json -> "modus"):
 - "github":  nutzt die installierte GitHub-Copilot-CLI automatisch.
@@ -19,12 +19,17 @@ import sys
 import webbrowser
 from pathlib import Path
 
+import werkzeuge
+
 AUFTRAG_DATEI = ".agent-auftrag.md"
-MAX_VERLAUF = 3            # GitHub-Modus: so viele letzte Fragen/Antworten mitgeben
-MAX_ZEICHEN = 2000         # Kuerzung alter Antworten
-MAX_RUNDEN = 5             # Manuell-Modus: max. Befehlsrunden pro Frage
-MAX_AUSGABE = 4000         # Kuerzung der Befehlsausgabe
+MAX_VERLAUF = 4            # GitHub-Modus: so viele letzte Runden mitgeben
+MAX_ZEICHEN = 3000         # Kuerzung alter Runden
+MAX_RUNDEN = 6             # max. Werkzeug-/Befehlsrunden pro Frage
+MAX_AUSGABE = 12000        # Kuerzung von Werkzeug- und Befehlsergebnissen
 IST_WINDOWS = platform.system() == "Windows"
+
+BEFEHL_MUSTER = re.compile(r"```befehl[ \t]*\r?\n(.*?)```", re.DOTALL)
+WERKZEUG_MUSTER = re.compile(r"```werkzeug[ \t]*\r?\n(.*?)```", re.DOTALL)
 
 STANDARD_CONFIG = {
     "modus": "auto",
@@ -36,6 +41,13 @@ STANDARD_CONFIG = {
     "erlaubte_tools": ["shell(git)"],
     "verbotene_tools": ["shell(git push)"],
     "verbotene_befehle": ["format", "rm -rf", "del /s", "rd /s", "shutdown", "git push"],
+    "werkzeuge_ohne_nachfrage": [],
+    "email": {
+        "server": "imap.mail.yahoo.com",
+        "port": 993,
+        "benutzer": "",
+        "passwort_umgebungsvariable": "AGENT_EMAIL_PASSWORT",
+    },
     "extra_argumente": [],
 }
 
@@ -80,19 +92,50 @@ def merke(basis: Path, text: str) -> None:
     print(f"Gemerkt in {datei.name}.")
 
 
-def grundregeln() -> list[str]:
-    return [
+def ja(frage: str) -> bool:
+    try:
+        return input(f"   {frage} (j/n): ").strip().lower() in ("j", "ja", "y")
+    except EOFError:
+        return False
+
+
+def anleitung(arbeitsordner: Path, mit_befehlen: bool) -> list[str]:
+    teile = [
         "Du bist ein hilfreicher Agent. Antworte auf Deutsch, kurz und klar.",
         "Nutze die Wissensdatenbank unten. Wenn dort etwas fehlt, sag das ehrlich.",
+        "",
+        "## Werkzeuge",
+        "Du kannst diese Werkzeuge benutzen:",
+        werkzeuge.beschreibungen(),
+        "",
+        "Aufruf: Schreibe einen Block wie diesen und hoere dann auf zu schreiben:",
+        "```werkzeug", "mails_suchen", "suche: Rechnung", "tage: 14", "```",
+        "Erste Zeile = Name, danach je Zeile 'parameter: wert'. Mehrere Bloecke sind erlaubt.",
+        "Du bekommst die Ergebnisse in der naechsten Nachricht und antwortest dann.",
     ]
+    if mit_befehlen:
+        shell = "Windows-Eingabeaufforderung (cmd)" if IST_WINDOWS else "bash"
+        teile += [
+            "",
+            "## Befehle",
+            f"Du kannst Befehle auf meinem PC ausfuehren lassen (System: {platform.system()}, "
+            f"Shell: {shell}, Ordner: {arbeitsordner}). Jeder Befehl in einen eigenen Block:",
+            "```befehl", "dir" if IST_WINDOWS else "ls", "```",
+        ]
+    else:
+        teile += ["", "Shell-Befehle fuehrst du wie gewohnt selbst aus. "
+                      "E-Mails usw. bekommst du NUR ueber die Werkzeuge oben."]
+    return teile
 
 
 # ---------------------------------------------------------------- Modus GitHub
 
 class GithubCopilot:
-    """Ruft die GitHub-Copilot-CLI auf. Copilot fuehrt erlaubte Befehle selbst aus."""
+    """Ruft die GitHub-Copilot-CLI auf. Copilot fuehrt erlaubte Shell-Befehle selbst aus."""
 
-    def __init__(self, config: dict, programm: str, arbeitsordner: Path):
+    mit_befehlen = False
+
+    def __init__(self, config: dict, programm: str, arbeitsordner: Path, basis: Path):
         self.arbeitsordner = arbeitsordner
         self.verlauf: list[tuple[str, str]] = []
         self.args = [programm]
@@ -110,15 +153,14 @@ class GithubCopilot:
     def neu(self) -> None:
         self.verlauf.clear()
 
-    def frage(self, wissen: str, frage: str) -> None:
-        teile = ["# Auftrag fuer den Agenten", *grundregeln(),
-                 "Du darfst Befehle ausfuehren, wenn sie fuer die Aufgabe noetig sind.",
+    def senden(self, wissen: str, text: str) -> str:
+        teile = ["# Auftrag fuer den Agenten", *anleitung(self.arbeitsordner, False),
                  "", "## Wissensdatenbank", wissen]
         if self.verlauf:
             teile += ["", "## Bisheriges Gespraech"]
             for f, a in self.verlauf[-MAX_VERLAUF:]:
-                teile += [f"**Nutzer:** {f}", f"**Agent:** {a[:MAX_ZEICHEN]}", ""]
-        teile += ["", "## Aktuelle Frage", frage]
+                teile += [f"**Nutzer:** {f[:MAX_ZEICHEN]}", f"**Agent:** {a[:MAX_ZEICHEN]}", ""]
+        teile += ["", "## Aktuelle Nachricht", text]
 
         # Auftrag als Datei: keine Probleme mit Laenge oder Sonderzeichen.
         datei = self.arbeitsordner / AUFTRAG_DATEI
@@ -134,8 +176,8 @@ class GithubCopilot:
             antwort = f"[Fehler von Copilot, Code {erg.returncode}]\n{erg.stderr.strip()}"
         else:
             antwort = erg.stdout.strip()
-        print(f"\nAgent: {antwort}")
-        self.verlauf.append((frage, antwort))
+        self.verlauf.append((text, antwort))
+        return antwort
 
 
 # ---------------------------------------------------------------- Modus Manuell
@@ -144,7 +186,6 @@ class Zwischenablage:
     """Zwischenablage ueber tkinter (in Python enthalten). Faellt still weg, wenn nicht moeglich."""
 
     def __init__(self):
-        self.tk = None
         try:
             import tkinter
             self.tk = tkinter.Tk()
@@ -168,18 +209,16 @@ class Zwischenablage:
             return False
 
     def lesen(self) -> str:
-        if not self.tk:
-            return ""
         try:
-            return self.tk.clipboard_get()
+            return self.tk.clipboard_get() if self.tk else ""
         except Exception:
             return ""
 
 
 class ManuellerCopilot:
-    """Jeder Copilot: Auftrag per Zwischenablage hin, Antwort zurueck, Befehle nach Bestaetigung."""
+    """Jeder Copilot: Auftrag per Zwischenablage hin, Antwort zurueck."""
 
-    BEFEHL_MUSTER = re.compile(r"```befehl\s*\n(.*?)```", re.DOTALL)
+    mit_befehlen = True
 
     def __init__(self, config: dict, arbeitsordner: Path, basis: Path):
         self.config = config
@@ -193,36 +232,22 @@ class ManuellerCopilot:
         self.erste_nachricht = True
         print("Bitte in Copilot einen NEUEN Chat beginnen.")
 
-    def anleitung(self, wissen: str) -> list[str]:
-        shell = "Windows-Eingabeaufforderung (cmd)" if IST_WINDOWS else "bash"
-        return [
-            "# Auftrag fuer dich als Agent", *grundregeln(),
-            "",
-            "Du kannst Befehle auf meinem PC ausfuehren lassen "
-            f"(System: {platform.system()}, Shell: {shell}, Ordner: {self.arbeitsordner}).",
-            "Schreibe dazu jeden Befehl in einen eigenen Block, genau so:",
-            "```befehl", "dir" if IST_WINDOWS else "ls", "```",
-            "Ich fuehre ihn aus und schicke dir das Ergebnis. "
-            "Schreibe keine Befehle in andere Bloecke. Ohne Befehl einfach normal antworten.",
-            "", "## Wissensdatenbank", wissen,
-        ]
-
-    def senden(self, text: str) -> None:
+    def senden(self, wissen: str, text: str) -> str:
+        if self.erste_nachricht:
+            text = "\n".join(["# Auftrag fuer dich als Agent", *anleitung(self.arbeitsordner, True),
+                              "", "## Wissensdatenbank", wissen, "", "## Meine Frage", text])
+            self.erste_nachricht = False
         (self.basis / "copilot-auftrag.txt").write_text(text, encoding="utf-8")
         if not self.browser_offen and self.config.get("copilot_url"):
             webbrowser.open(self.config["copilot_url"])
             self.browser_offen = True
         if self.ablage.setzen(text):
             print("\n>> Auftrag ist in der Zwischenablage. In Copilot einfuegen (Strg+V) und absenden.")
-        else:
-            print(f"\n>> Auftrag steht in: {self.basis / 'copilot-auftrag.txt'}")
-            print("   Inhalt kopieren, in Copilot einfuegen und absenden.")
-
-    def antwort_holen(self) -> str:
-        if self.ablage.geht:
             print(">> Antwort von Copilot kopieren und hier Enter druecken.")
             print("   (Oder Antwort hier einfuegen und mit einer Zeile ENDE abschliessen.)")
         else:
+            print(f"\n>> Auftrag steht in: {self.basis / 'copilot-auftrag.txt'}")
+            print("   Inhalt kopieren, in Copilot einfuegen und absenden.")
             print(">> Antwort von Copilot hier einfuegen und mit einer Zeile ENDE abschliessen.")
         zeilen = []
         while True:
@@ -237,57 +262,70 @@ class ManuellerCopilot:
             zeilen.append(zeile)
         return "\n".join(zeilen).strip()
 
-    def ist_verboten(self, befehl: str) -> bool:
-        klein = befehl.lower()
-        return any(v.lower() in klein for v in self.config.get("verbotene_befehle", []))
 
-    def ausfuehren(self, befehl: str) -> str:
-        if self.ist_verboten(befehl):
+# ---------------------------------------------------------------- Agenten-Schleife
+
+class Agent:
+    def __init__(self, backend, config: dict, arbeitsordner: Path):
+        self.backend = backend
+        self.config = config
+        self.arbeitsordner = arbeitsordner
+
+    def werkzeug_ausfuehren(self, block: str) -> str:
+        zeilen = [z for z in block.strip().splitlines() if z.strip()]
+        if not zeilen:
+            return "Leerer Werkzeug-Block."
+        name = zeilen[0].strip()
+        parameter = {}
+        for zeile in zeilen[1:]:
+            if ":" in zeile:
+                schluessel, wert = zeile.split(":", 1)
+                parameter[schluessel.strip()] = wert.strip()
+        print(f"\n   Werkzeug: {name} {parameter}")
+        if name not in self.config.get("werkzeuge_ohne_nachfrage", []) and not ja("Ausfuehren?"):
+            return "Der Nutzer hat dieses Werkzeug abgelehnt."
+        ergebnis = werkzeuge.ausfuehren(name, parameter, self.config)
+        print(f"   -> {len(ergebnis)} Zeichen Ergebnis")
+        return ergebnis[:MAX_AUSGABE]
+
+    def befehl_ausfuehren(self, befehl: str) -> str:
+        print(f"\n   Befehl: {befehl}")
+        if any(v.lower() in befehl.lower() for v in self.config.get("verbotene_befehle", [])):
             print("   -> Verboten (config.json: verbotene_befehle). Nicht ausgefuehrt.")
             return "Dieser Befehl ist verboten und wurde nicht ausgefuehrt."
-        try:
-            ok = input("   Ausfuehren? (j/n): ").strip().lower() in ("j", "ja", "y")
-        except EOFError:
-            ok = False
-        if not ok:
+        if not ja("Ausfuehren?"):
             return "Der Nutzer hat diesen Befehl abgelehnt."
         try:
             erg = subprocess.run(befehl, shell=True, cwd=self.arbeitsordner, capture_output=True,
                                  text=True, encoding="utf-8", errors="replace", timeout=120)
-            ausgabe = (erg.stdout + erg.stderr).strip() or "(keine Ausgabe)"
-            ausgabe = f"Exit-Code {erg.returncode}\n{ausgabe}"
+            ausgabe = f"Exit-Code {erg.returncode}\n" + ((erg.stdout + erg.stderr).strip() or "(keine Ausgabe)")
         except subprocess.TimeoutExpired:
             ausgabe = "Abgebrochen: dauerte laenger als 120 Sekunden."
         print("   " + ausgabe[:500].replace("\n", "\n   "))
         return ausgabe[:MAX_AUSGABE]
 
-    def frage(self, wissen: str, frage: str) -> None:
-        if self.erste_nachricht:
-            text = "\n".join(self.anleitung(wissen) + ["", "## Meine Frage", frage])
-            self.erste_nachricht = False
-        else:
-            text = frage
+    def frage(self, wissen: str, text: str) -> None:
         for _ in range(MAX_RUNDEN):
-            self.senden(text)
-            antwort = self.antwort_holen()
+            antwort = self.backend.senden(wissen, text)
             if not antwort:
                 print("Keine Antwort erhalten.")
                 return
-            befehle = [b.strip() for b in self.BEFEHL_MUSTER.findall(antwort) if b.strip()]
-            print(f"\nAgent (Copilot): {self.BEFEHL_MUSTER.sub('[Befehl]', antwort).strip()}")
-            if not befehle:
+            aufrufe = WERKZEUG_MUSTER.findall(antwort)
+            befehle = BEFEHL_MUSTER.findall(antwort) if self.backend.mit_befehlen else []
+            sichtbar = WERKZEUG_MUSTER.sub("[Werkzeug]", BEFEHL_MUSTER.sub("[Befehl]", antwort)).strip()
+            print(f"\nAgent: {sichtbar}")
+            if not aufrufe and not befehle:
                 return
-            ergebnisse = []
-            for befehl in befehle:
-                print(f"\n   Befehl: {befehl}")
-                ergebnisse.append(f"Befehl:\n{befehl}\nErgebnis:\n{self.ausfuehren(befehl)}")
-            text = "Ergebnisse deiner Befehle:\n\n" + "\n\n".join(ergebnisse)
-        print(f"(Nach {MAX_RUNDEN} Befehlsrunden gestoppt.)")
+            ergebnisse = [f"Werkzeug:\n{a.strip()}\nErgebnis:\n{self.werkzeug_ausfuehren(a)}" for a in aufrufe]
+            ergebnisse += [f"Befehl:\n{b.strip()}\nErgebnis:\n{self.befehl_ausfuehren(b.strip())}"
+                           for b in befehle if b.strip()]
+            text = "Ergebnisse deiner Aufrufe:\n\n" + "\n\n".join(ergebnisse)
+        print(f"(Nach {MAX_RUNDEN} Runden gestoppt.)")
 
 
 # ---------------------------------------------------------------- Start
 
-def waehle_modus(config: dict, arbeitsordner: Path, basis: Path):
+def waehle_backend(config: dict, arbeitsordner: Path, basis: Path):
     modus = config.get("modus", "auto")
     programm = shutil.which(config["copilot_befehl"])
     if modus == "github" and not programm:
@@ -295,7 +333,7 @@ def waehle_modus(config: dict, arbeitsordner: Path, basis: Path):
                  "oder in config.json \"modus\": \"manuell\" setzen.")
     if modus in ("github", "auto") and programm:
         print("Modus: GitHub-Copilot-CLI (automatisch)")
-        return GithubCopilot(config, programm, arbeitsordner)
+        return GithubCopilot(config, programm, arbeitsordner, basis)
     print("Modus: Manuell (funktioniert mit jedem Copilot)")
     return ManuellerCopilot(config, arbeitsordner, basis)
 
@@ -305,9 +343,10 @@ def main() -> None:
     (basis / "wissen").mkdir(exist_ok=True)
     config = lade_config(basis)
     arbeitsordner = (basis / config["arbeitsordner"]).resolve()
-    agent = waehle_modus(config, arbeitsordner, basis)
+    agent = Agent(waehle_backend(config, arbeitsordner, basis), config, arbeitsordner)
 
     print(f"Arbeitsordner: {arbeitsordner}")
+    print(f"Werkzeuge: {', '.join(werkzeuge.WERKZEUGE)}")
     print("'exit' beendet, 'neu' startet ein neues Gespraech, 'merke: ...' speichert Wissen.")
     while True:
         try:
@@ -319,7 +358,7 @@ def main() -> None:
         if frage.lower() in ("exit", "quit"):
             break
         if frage.lower() == "neu":
-            agent.neu()
+            agent.backend.neu()
             continue
         if frage.lower().startswith("merke:"):
             merke(basis, frage[len("merke:"):].strip())
