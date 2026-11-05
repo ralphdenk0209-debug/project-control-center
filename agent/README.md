@@ -44,25 +44,31 @@ Falls die Zwischenablage nicht geht: Der Auftrag steht auch in `copilot-auftrag.
 
 Beispiele: *„Fasse meine Mails der letzten Woche zusammen“*, *„Suche Rechnungen von den Stadtwerken“*.
 
-**Einrichten (einmalig):**
-1. Beim Mail-Anbieter ein **App-Passwort** erstellen. Bei Yahoo: Kontosicherheit → App-Passwort erstellen.
-2. In `config.json` bei `email` den `server` und den `benutzer` (deine Mail-Adresse) eintragen.
-3. Das Passwort fragt der Agent beim ersten Zugriff ab. Gespeichert wird es nicht.
-   Alternativ: als Umgebungsvariable `AGENT_EMAIL_PASSWORT` setzen.
+Der Agent sucht sich den Weg selbst (`email` → `typ`: `auto`). Er probiert der Reihe nach:
 
-| Anbieter | Server |
-|---|---|
-| Yahoo | `imap.mail.yahoo.com` |
-| Gmail | `imap.gmail.com` |
-| GMX | `imap.gmx.net` |
-| web.de | `imap.web.de` |
-| T-Online | `secureimap.t-online.de` |
+### 1. Klassisches Outlook (ohne Admin)
+- Geht, wenn auf dem Windows-PC das **klassische Outlook-Programm** installiert und angemeldet ist.
+- Es muss nichts eingerichtet werden. Outlook sollte dabei laufen.
+- Mit dem **neuen** Outlook geht das nicht.
+
+### 2. Microsoft 365 (neues Outlook, Web, jeder PC)
+Ein Admin richtet das **einmal** für die ganze Firma ein:
+1. Im Microsoft Entra Admin Center unter **App-Registrierungen** → **Neue Registrierung**. Name: `Copilot-Agent`, nur dieses Verzeichnis.
+2. Unter **Authentifizierung**: Plattform **Mobile und Desktopanwendungen** hinzufügen und **Öffentliche Clientflows zulassen = Ja** setzen.
+3. Unter **API-Berechtigungen** → Microsoft Graph → **Delegiert**: `Mail.Read`, `User.Read`, `offline_access`. Danach **Administratorzustimmung erteilen**.
+4. Die **Anwendungs-ID (Client)** und die **Verzeichnis-ID (Mandant)** in `config.json` eintragen:
+   `"m365_client_id": "..."`, `"m365_tenant": "..."`
+
+Beim ersten Mail-Zugriff öffnet sich der Browser. Dort gibst du den angezeigten Code ein und meldest dich normal an.
+Die Anmeldung bleibt in `~/.copilot-agent/m365-token.json` gespeichert. Datei löschen = abmelden.
+
+### 3. IMAP (andere Anbieter wie Yahoo, Gmail, GMX)
+In `config.json` bei `email` den `server` und den `benutzer` eintragen. Das App-Passwort fragt der Agent beim ersten Zugriff ab.
 
 **Gut zu wissen:**
 - Der Agent liest nur. Er löscht und verschiebt nichts und markiert nichts als gelesen.
 - Vor jedem Zugriff fragt er nach. Ohne Nachfrage geht es, wenn du den Namen in `werkzeuge_ohne_nachfrage` einträgst, z. B. `["mails_suchen"]`.
 - Die gefundenen Mails gehen zum Zusammenfassen an Copilot, also an Microsoft oder GitHub.
-- Outlook.com und Microsoft 365 gehen so **nicht**, weil Microsoft dort die Anmeldung per Passwort gesperrt hat.
 
 **Werkzeuge:** `mails_suchen`, `mail_lesen`, `mail_ordner`. Neue Werkzeuge kommen in `werkzeuge.py`, danach die Datei neu bauen.
 
@@ -72,7 +78,7 @@ Beispiele: *„Fasse meine Mails der letzten Woche zusammen“*, *„Suche Rechn
 |---|---|
 | `modus` | `auto`, `github` oder `manuell` |
 | `copilot_url` | Seite, die im manuellen Modus geöffnet wird (leer = keine) |
-| `email` | Mail-Zugang: server, port, benutzer |
+| `email` | Mail-Zugang: `typ` (auto/outlook/m365/imap), M365-IDs, IMAP-Daten |
 | `werkzeuge_ohne_nachfrage` | Werkzeuge, die ohne Rückfrage laufen dürfen |
 | `verbotene_befehle` | Manuell: Befehle mit diesen Wörtern werden nie ausgeführt |
 | `erlaubte_tools` | GitHub: Was Copilot ohne Nachfrage darf, z. B. `"shell(git)"` |

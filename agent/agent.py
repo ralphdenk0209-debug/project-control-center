@@ -43,7 +43,10 @@ STANDARD_CONFIG = {
     "verbotene_befehle": ["format", "rm -rf", "del /s", "rd /s", "shutdown", "git push"],
     "werkzeuge_ohne_nachfrage": [],
     "email": {
-        "server": "imap.mail.yahoo.com",
+        "typ": "auto",
+        "m365_client_id": "",
+        "m365_tenant": "organizations",
+        "server": "",
         "port": 993,
         "benutzer": "",
         "passwort_umgebungsvariable": "AGENT_EMAIL_PASSWORT",
