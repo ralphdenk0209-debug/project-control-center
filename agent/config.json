@@ -1,5 +1,7 @@
 {
+  "modus": "auto",
   "copilot_befehl": "copilot",
+  "copilot_url": "https://copilot.microsoft.com",
   "arbeitsordner": ".",
   "modell": null,
   "alles_erlauben": false,
@@ -8,6 +10,14 @@
   ],
   "verbotene_tools": [
     "shell(git push)"
+  ],
+  "verbotene_befehle": [
+    "format",
+    "rm -rf",
+    "del /s",
+    "rd /s",
+    "shutdown",
+    "git push"
   ],
   "extra_argumente": []
 }

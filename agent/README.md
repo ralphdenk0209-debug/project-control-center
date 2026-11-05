@@ -1,41 +1,58 @@
-# Agent mit GitHub Copilot
+# Agent mit Copilot
 
 Ein kleiner Agent, der deine **Wissensdatenbank** nutzt und **Befehle ausführt**.
-Als Gehirn benutzt er die installierte **GitHub-Copilot-CLI**.
+Er läuft mit **jedem Copilot**.
 
-## Voraussetzungen (auf jedem PC)
+## Zwei Modi
 
-1. GitHub-Copilot-CLI ist installiert und angemeldet.
-   Test: `copilot --help` im Terminal funktioniert.
-2. Fürs Bauen der .exe zusätzlich: Python 3.10 oder neuer.
+| Modus | Für wen | Wie |
+|---|---|---|
+| **GitHub** | Wer die GitHub-Copilot-CLI hat | Läuft automatisch. Copilot führt erlaubte Befehle selbst aus. |
+| **Manuell** | Jeder Copilot (Windows, Browser, Microsoft 365) | Kopieren und Einfügen. Befehle laufen erst nach deinem „j“. |
 
-## Starten (ohne Bauen)
+Bei `"modus": "auto"` (Standard) nimmt der Agent die GitHub-CLI, wenn sie installiert ist, sonst den manuellen Modus.
+
+**Warum manuell?** Der normale Microsoft Copilot hat keine Schnittstelle für eigene Programme.
+
+## Starten
 
 ```
 python agent.py
 ```
 
 - `exit` beendet den Agenten.
-- `neu` leert den Gesprächsverlauf.
+- `neu` startet ein neues Gespräch. Im manuellen Modus dann auch in Copilot einen neuen Chat öffnen.
+
+## Ablauf im manuellen Modus
+
+1. Du stellst eine Frage.
+2. Copilot öffnet sich im Browser, und der Auftrag liegt in der Zwischenablage.
+3. In Copilot mit **Strg+V** einfügen und absenden.
+4. Die Antwort von Copilot **kopieren**, dann im Agenten **Enter** drücken.
+5. Schlägt Copilot einen Befehl vor, fragt der Agent: `Ausführen? (j/n)`.
+6. Das Ergebnis geht wieder in die Zwischenablage. Weiter bei Schritt 3.
+
+Falls die Zwischenablage nicht geht: Der Auftrag steht auch in `copilot-auftrag.txt`. Die Antwort fügst du dann direkt ein und beendest sie mit einer Zeile `ENDE`.
 
 ## Wissensdatenbank
 
 - Lege `.md`- oder `.txt`-Dateien in den Ordner `wissen/`.
-- Der Agent liest sie bei **jeder Frage neu**. Ein Neustart ist also nicht nötig.
+- Sie werden bei **jeder Frage neu** gelesen.
 
-## Befehle erlauben (`config.json`)
+## Einstellungen (`config.json`)
 
 | Feld | Bedeutung |
 |---|---|
-| `erlaubte_tools` | Was Copilot ohne Nachfrage darf, z. B. `"shell(git)"` |
-| `verbotene_tools` | Was immer verboten ist, z. B. `"shell(git push)"` |
-| `alles_erlauben` | `true` erlaubt **alle** Befehle. Vorsicht! |
-| `arbeitsordner` | Ordner, in dem gearbeitet wird (Standard: der Programmordner) |
-| `modell` | Optional ein bestimmtes Copilot-Modell |
-| `copilot_befehl` | Name oder voller Pfad zur Copilot-CLI |
-| `extra_argumente` | Weitere Copilot-Optionen, z. B. `["--silent"]` |
-
-Was nicht erlaubt ist, wird blockiert. Copilot fragt im Programmodus nicht nach.
+| `modus` | `auto`, `github` oder `manuell` |
+| `copilot_url` | Seite, die im manuellen Modus geöffnet wird (leer = keine) |
+| `verbotene_befehle` | Manuell: Befehle mit diesen Wörtern werden nie ausgeführt |
+| `erlaubte_tools` | GitHub: Was Copilot ohne Nachfrage darf, z. B. `"shell(git)"` |
+| `verbotene_tools` | GitHub: Was immer verboten ist |
+| `alles_erlauben` | GitHub: `true` erlaubt **alle** Befehle. Vorsicht! |
+| `arbeitsordner` | Ordner, in dem Befehle laufen (Standard: der Programmordner) |
+| `modell` | GitHub: optional ein bestimmtes Modell |
+| `copilot_befehl` | GitHub: Name oder Pfad der Copilot-CLI |
+| `extra_argumente` | GitHub: weitere Optionen, z. B. `["--silent"]` |
 
 ## Als Programm bauen (eigenständige Datei)
 
@@ -43,11 +60,4 @@ Was nicht erlaubt ist, wird blockiert. Copilot fragt im Programmodus nicht nach.
 - **Mac/Linux:** `./build.sh` → `dist/agent/agent`
 
 Gib den **ganzen Ordner** `dist/agent` weiter (Programm + `wissen/` + `config.json`).
-Pro Betriebssystem musst du einmal bauen.
-
-## So funktioniert es
-
-1. Du stellst eine Frage.
-2. Der Agent schreibt das Wissen, den Verlauf und die Frage in die Datei `.agent-auftrag.md`.
-3. Er ruft `copilot -p "Lies .agent-auftrag.md …"` auf. Copilot antwortet und führt dabei erlaubte Befehle aus.
-4. Danach wird die Datei wieder gelöscht.
+Auf dem Ziel-PC muss Python nicht installiert sein. Pro Betriebssystem musst du einmal bauen.
