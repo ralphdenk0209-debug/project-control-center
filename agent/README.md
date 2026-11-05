@@ -124,7 +124,7 @@ Das erzeugt `dist/agent-paket.zip`. Darin sind alle Programmdateien als `.txt`.
 Auf dem Ziel-PC:
 1. Entpacken.
 2. Bei Bedarf den MCP-Ordner hineinkopieren.
-3. **`start.bat` doppelklicken.** Sie benennt die Dateien in `.py` um, prüft Python, installiert falls nötig `pywin32` für Outlook und startet den Agenten.
+3. **`Start.txt` in `Start.bat` umbenennen und doppelklicken.** Sie benennt die Dateien in `.py` um, prüft Python, installiert falls nötig `pywin32` für Outlook und startet den Agenten.
 
 Auf dem Mac oder unter Linux: `bash start.sh`.
 
