@@ -21,6 +21,8 @@
   ],
   "werkzeuge_ohne_nachfrage": [],
   "zeitzone": "W. Europe Standard Time",
+  "mcp_server": {},
+  "mcp_nur_lesend": [],
   "email": {
     "typ": "auto",
     "m365_client_id": "",

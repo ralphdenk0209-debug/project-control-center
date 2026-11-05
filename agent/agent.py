@@ -20,6 +20,7 @@ import sys
 import webbrowser
 from pathlib import Path
 
+import mcp_client
 import werkzeuge
 
 AUFTRAG_DATEI = ".agent-auftrag.md"
@@ -44,6 +45,8 @@ STANDARD_CONFIG = {
     "verbotene_befehle": ["format", "rm -rf", "del /s", "rd /s", "shutdown", "git push"],
     "werkzeuge_ohne_nachfrage": [],
     "zeitzone": "W. Europe Standard Time",
+    "mcp_server": {},
+    "mcp_nur_lesend": [],
     "email": {
         "typ": "auto",
         "m365_client_id": "",
@@ -126,6 +129,8 @@ def anleitung(arbeitsordner: Path, mit_befehlen: bool) -> list[str]:
         "```werkzeug", "mails_suchen", "suche: Rechnung", "tage: 14", "```",
         "Erste Zeile = Name, danach je Zeile 'parameter: wert'. Mehrere Bloecke sind erlaubt.",
         "Du bekommst die Ergebnisse in der naechsten Nachricht und antwortest dann.",
+        "Werkzeuge mit Punkt im Namen (server.werkzeug) kommen von MCP-Servern; "
+        "wenn ein eingebautes Werkzeug mit Fehler endet, nimm das passende MCP-Werkzeug.",
     ]
     if mit_befehlen:
         shell = "Windows-Eingabeaufforderung (cmd)" if IST_WINDOWS else "bash"
@@ -366,9 +371,10 @@ def main() -> None:
     config = lade_config(basis)
     arbeitsordner = (basis / config["arbeitsordner"]).resolve()
     agent = Agent(waehle_backend(config, arbeitsordner, basis), config, arbeitsordner)
+    mcp_client.starten(config, basis)
 
     print(f"Arbeitsordner: {arbeitsordner}")
-    print(f"Werkzeuge: {', '.join(werkzeuge.WERKZEUGE)}")
+    print(f"Werkzeuge: {len(werkzeuge.WERKZEUGE)} ({', '.join(werkzeuge.WERKZEUGE)})")
     print("'exit' beendet, 'neu' startet ein neues Gespraech, 'merke: ...' speichert Wissen.")
     while True:
         try:

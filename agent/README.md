@@ -99,10 +99,34 @@ Beispiele:
 - Ein Teams-Link wird nur über Microsoft 365 automatisch erstellt. Mit dem Outlook-Programm musst du ihn in Outlook selbst hinzufügen.
 - Die Zeitzone stellst du in `config.json` bei `zeitzone` ein (Standard: Deutschland).
 
-## Alternative: MCP-Server (z. B. vom Kollegen)
+## MCP-Server (z. B. vom Kollegen)
 
-Im **GitHub-Modus** kann die Copilot-CLI zusätzlich MCP-Server nutzen. Dazu den Server des Kollegen in der Copilot-CLI hinzufügen (interaktiv mit `copilot` starten, dann `/mcp add`). Danach kann Copilot ihn auch hier nutzen. Das ist nicht getestet.
-Im **manuellen Modus** (normaler Copilot) geht MCP nicht. Dort helfen nur die eingebauten Werkzeuge oben.
+Der Agent kann MCP-Server selbst starten und ihre Werkzeuge nutzen, im **GitHub-Modus und mit dem normalen Copilot**.
+
+1. Den MCP-Ordner **in den Agenten-Ordner kopieren**.
+2. Den Agenten starten. Er sucht in den Unterordnern nach `mcp.json`, `.vscode/mcp.json`, `mcp-config.json` oder `claude_desktop_config.json` und startet die Server, die dort eingetragen sind.
+3. Meldet sich der Server mit einem Anmeldehinweis (z. B. Code im Browser eingeben), erscheint der Hinweis im Fenster.
+
+Die Werkzeuge heißen dann `servername.werkzeug`, z. B. `outlook.search-mail`.
+
+- Steht keine solche Datei im Ordner: In `config.json` bei `mcp_server` eintragen, wie der Server startet:
+  `"mcp_server": {"outlook": {"command": "node", "args": ["kollege-mcp/dist/index.js"]}}`
+- Werkzeuge, die nicht wie Lesen klingen (z. B. `send-mail`), fragen **immer** nach. Ist eines davon in Wahrheit nur lesend, trag es in `mcp_nur_lesend` ein.
+- Unterstützt werden nur **lokale** Server (`command`). Server im Internet (`url`) gehen nicht.
+
+## Paket für PCs, die .py-Dateien blockieren
+
+```
+python paket_erstellen.py
+```
+Das erzeugt `dist/agent-paket.zip`. Darin sind alle Programmdateien als `.txt`.
+
+Auf dem Ziel-PC:
+1. Entpacken.
+2. Bei Bedarf den MCP-Ordner hineinkopieren.
+3. **`start.bat` doppelklicken.** Sie benennt die Dateien in `.py` um, prüft Python, installiert falls nötig `pywin32` für Outlook und startet den Agenten.
+
+Auf dem Mac oder unter Linux: `bash start.sh`.
 
 ## Einstellungen (`config.json`)
 
@@ -119,6 +143,8 @@ Im **manuellen Modus** (normaler Copilot) geht MCP nicht. Dort helfen nur die ei
 | `arbeitsordner` | Ordner, in dem Befehle laufen (Standard: der Programmordner) |
 | `modell` | GitHub: optional ein bestimmtes Modell |
 | `copilot_befehl` | GitHub: Name oder Pfad der Copilot-CLI |
+| `mcp_server` | MCP-Server von Hand eintragen (sonst automatische Suche) |
+| `mcp_nur_lesend` | MCP-Werkzeuge, die ohne „Wirklich?“ laufen dürfen |
 | `extra_argumente` | GitHub: weitere Optionen, z. B. `["--silent"]` |
 
 ## Als Programm bauen (eigenständige Datei)

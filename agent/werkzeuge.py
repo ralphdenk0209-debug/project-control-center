@@ -29,6 +29,11 @@ def werkzeug(name: str, beschreibung: str, schreibend: bool = False):
     return markieren
 
 
+def registrieren(name: str, beschreibung: str, funktion, schreibend: bool = False) -> None:
+    """Fuer Werkzeuge, die erst beim Start dazukommen (z. B. von MCP-Servern)."""
+    WERKZEUGE[name] = (beschreibung, funktion, schreibend)
+
+
 def ist_schreibend(name: str) -> bool:
     return name in WERKZEUGE and WERKZEUGE[name][2]
 
