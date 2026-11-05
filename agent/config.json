@@ -1,0 +1,13 @@
+{
+  "copilot_befehl": "copilot",
+  "arbeitsordner": ".",
+  "modell": null,
+  "alles_erlauben": false,
+  "erlaubte_tools": [
+    "shell(git)"
+  ],
+  "verbotene_tools": [
+    "shell(git push)"
+  ],
+  "extra_argumente": []
+}
