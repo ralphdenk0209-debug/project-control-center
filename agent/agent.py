@@ -67,6 +67,19 @@ def lade_wissen(basis: Path) -> str:
     return "\n\n".join(teile) or "(Die Wissensdatenbank ist leer.)"
 
 
+def merke(basis: Path, text: str) -> None:
+    """Haengt neues Wissen an wissen/gelernt.md an."""
+    if not text:
+        print("Bitte so: merke: Rechnungen liegen in C:\\Daten\\Rechnungen")
+        return
+    datei = basis / "wissen" / "gelernt.md"
+    if not datei.exists():
+        datei.write_text("# Gelernt (mit 'merke:' hinzugefuegt)\n\n", encoding="utf-8")
+    with datei.open("a", encoding="utf-8") as f:
+        f.write(f"- {text}\n")
+    print(f"Gemerkt in {datei.name}.")
+
+
 def grundregeln() -> list[str]:
     return [
         "Du bist ein hilfreicher Agent. Antworte auf Deutsch, kurz und klar.",
@@ -295,7 +308,7 @@ def main() -> None:
     agent = waehle_modus(config, arbeitsordner, basis)
 
     print(f"Arbeitsordner: {arbeitsordner}")
-    print("'exit' beendet, 'neu' startet ein neues Gespraech.")
+    print("'exit' beendet, 'neu' startet ein neues Gespraech, 'merke: ...' speichert Wissen.")
     while True:
         try:
             frage = input("\nDu: ").strip()
@@ -307,6 +320,9 @@ def main() -> None:
             break
         if frage.lower() == "neu":
             agent.neu()
+            continue
+        if frage.lower().startswith("merke:"):
+            merke(basis, frage[len("merke:"):].strip())
             continue
         agent.frage(lade_wissen(basis), frage)   # Wissen jedes Mal neu laden
 

@@ -22,6 +22,7 @@ python agent.py
 
 - `exit` beendet den Agenten.
 - `neu` startet ein neues Gespräch. Im manuellen Modus dann auch in Copilot einen neuen Chat öffnen.
+- `merke: ...` speichert neues Wissen in `wissen/gelernt.md`.
 
 ## Ablauf im manuellen Modus
 
