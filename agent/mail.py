@@ -50,7 +50,8 @@ class OutlookPostfach:
     def __init__(self, config: dict):
         try:
             import win32com.client   # nur auf Windows mit pywin32 vorhanden
-            self.ns = win32com.client.Dispatch("Outlook.Application").GetNamespace("MAPI")
+            self.app = win32com.client.Dispatch("Outlook.Application")
+            self.ns = self.app.GetNamespace("MAPI")
             self.ns.GetDefaultFolder(6)   # Test: wirft Fehler, wenn Outlook nicht nutzbar ist
         except Exception as fehler:
             raise RuntimeError("Klassisches Outlook nicht nutzbar (nur Windows mit installiertem "
@@ -136,12 +137,13 @@ class OutlookPostfach:
 class M365Postfach:
     name = "Microsoft 365"
     GRAPH = "https://graph.microsoft.com/v1.0"
-    SCOPE = "Mail.Read User.Read offline_access"
+    SCOPE = "Mail.Read Calendars.ReadWrite User.Read offline_access"
 
     def __init__(self, config: dict):
         m = config.get("email", {})
         self.client_id = m.get("m365_client_id", "")
         self.tenant = m.get("m365_tenant") or "organizations"
+        self.zeitzone = config.get("zeitzone") or "W. Europe Standard Time"
         if not self.client_id:
             raise RuntimeError("Microsoft 365 ist nicht eingerichtet (config.json -> email -> m365_client_id).")
         self.token_datei = Path.home() / ".copilot-agent" / "m365-token.json"
@@ -190,20 +192,30 @@ class M365Postfach:
                 raise RuntimeError(f"Anmeldung fehlgeschlagen: {antwort.get('error_description', antwort)}")
         raise RuntimeError("Anmeldung abgelaufen. Bitte nochmal versuchen.")
 
-    def _get(self, pfad: str, parameter: dict | None = None, erneut: bool = True) -> dict:
+    def _anfrage(self, methode: str, pfad: str, parameter: dict | None = None,
+                 daten: dict | None = None, erneut: bool = True) -> dict:
         if not self.token:
             self._anmelden()
         url = self.GRAPH + pfad + ("?" + urllib.parse.urlencode(parameter) if parameter else "")
-        anfrage = urllib.request.Request(url, headers={"Authorization": f"Bearer {self.token}",
-                                                       "Prefer": 'outlook.body-content-type="text"'})
+        kopf = {"Authorization": f"Bearer {self.token}",
+                "Prefer": f'outlook.body-content-type="text", outlook.timezone="{self.zeitzone}"'}
+        inhalt = None
+        if daten is not None:
+            inhalt = json.dumps(daten).encode()
+            kopf["Content-Type"] = "application/json"
+        anfrage = urllib.request.Request(url, data=inhalt, headers=kopf, method=methode)
         try:
             with urllib.request.urlopen(anfrage, timeout=60) as antwort:
-                return json.load(antwort)
+                roh = antwort.read()
+                return json.loads(roh) if roh else {}
         except urllib.error.HTTPError as fehler:
             if fehler.code == 401 and erneut:           # Token abgelaufen -> neu anmelden
                 self.token = None
-                return self._get(pfad, parameter, erneut=False)
+                return self._anfrage(methode, pfad, parameter, daten, erneut=False)
             raise RuntimeError(f"Microsoft Graph Fehler {fehler.code}: {fehler.read()[:300]!r}")
+
+    def _get(self, pfad: str, parameter: dict | None = None) -> dict:
+        return self._anfrage("GET", pfad, parameter)
 
     @staticmethod
     def _ordner(ordner: str) -> str:

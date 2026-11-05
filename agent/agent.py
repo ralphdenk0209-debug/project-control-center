@@ -10,6 +10,7 @@ Zwei Modi (config.json -> "modus"):
 Start: python agent.py   (oder die gebaute agent.exe)
 """
 
+import datetime
 import json
 import platform
 import re
@@ -42,6 +43,7 @@ STANDARD_CONFIG = {
     "verbotene_tools": ["shell(git push)"],
     "verbotene_befehle": ["format", "rm -rf", "del /s", "rd /s", "shutdown", "git push"],
     "werkzeuge_ohne_nachfrage": [],
+    "zeitzone": "W. Europe Standard Time",
     "email": {
         "typ": "auto",
         "m365_client_id": "",
@@ -102,9 +104,18 @@ def ja(frage: str) -> bool:
         return False
 
 
+def heute_text() -> str:
+    jetzt = datetime.datetime.now()
+    tage = ["Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag", "Sonntag"]
+    return f"Heute ist {tage[jetzt.weekday()]}, {jetzt:%d.%m.%Y}, {jetzt:%H:%M} Uhr."
+
+
 def anleitung(arbeitsordner: Path, mit_befehlen: bool) -> list[str]:
     teile = [
         "Du bist ein hilfreicher Agent. Antworte auf Deutsch, kurz und klar.",
+        heute_text() + " Daten an Werkzeuge immer als JJJJ-MM-TT HH:MM.",
+        "Vor Aenderungen (Termine setzen, verschieben, absagen, loeschen) erst mit termine_anzeigen "
+        "die richtige ID holen. Bei Unklarheiten nachfragen statt raten.",
         "Nutze die Wissensdatenbank unten. Wenn dort etwas fehlt, sag das ehrlich.",
         "",
         "## Werkzeuge",
@@ -240,6 +251,8 @@ class ManuellerCopilot:
             text = "\n".join(["# Auftrag fuer dich als Agent", *anleitung(self.arbeitsordner, True),
                               "", "## Wissensdatenbank", wissen, "", "## Meine Frage", text])
             self.erste_nachricht = False
+        elif not text.startswith("Ergebnisse deiner Aufrufe"):
+            text = f"({heute_text()})\n{text}"
         (self.basis / "copilot-auftrag.txt").write_text(text, encoding="utf-8")
         if not self.browser_offen and self.config.get("copilot_url"):
             webbrowser.open(self.config["copilot_url"])
@@ -284,8 +297,14 @@ class Agent:
             if ":" in zeile:
                 schluessel, wert = zeile.split(":", 1)
                 parameter[schluessel.strip()] = wert.strip()
-        print(f"\n   Werkzeug: {name} {parameter}")
-        if name not in self.config.get("werkzeuge_ohne_nachfrage", []) and not ja("Ausfuehren?"):
+        print(f"\n   Werkzeug: {name}")
+        for schluessel, wert in parameter.items():
+            print(f"      {schluessel}: {wert[:200]}")
+        if werkzeuge.ist_schreibend(name):
+            print("   !! Dieses Werkzeug AENDERT etwas (z. B. Kalender, Einladungen).")
+            if not ja("Wirklich ausfuehren?"):
+                return "Der Nutzer hat diese Aenderung abgelehnt."
+        elif name not in self.config.get("werkzeuge_ohne_nachfrage", []) and not ja("Ausfuehren?"):
             return "Der Nutzer hat dieses Werkzeug abgelehnt."
         ergebnis = werkzeuge.ausfuehren(name, parameter, self.config)
         print(f"   -> {len(ergebnis)} Zeichen Ergebnis")
